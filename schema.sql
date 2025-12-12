@@ -1,7 +1,10 @@
--- Create table for lean TFS work items + dependency/related metrics.
+-- ============================================
+-- TFS Work Items Analytics (Neon / Postgres)
+-- Table: tfs_workitems_analytics
 -- Safe to run multiple times.
+-- ============================================
 
-CREATE TABLE IF NOT EXISTS tfs_workitems_lean (
+CREATE TABLE IF NOT EXISTS tfs_workitems_analytics (
   work_item_id        INTEGER PRIMARY KEY,
 
   type                TEXT NOT NULL,
@@ -34,18 +37,18 @@ CREATE TABLE IF NOT EXISTS tfs_workitems_lean (
   feature             TEXT,
 
   dep_count           INTEGER NOT NULL DEFAULT 0,
-  open_dep_count      INTEGER, -- nullable because we compute open counts only for active items
+  open_dep_count      INTEGER,  -- nullable: open counts computed only for active items
   related_link_count  INTEGER NOT NULL DEFAULT 0,
-  open_related_count  INTEGER, -- nullable because we compute open counts only for active items
+  open_related_count  INTEGER,  -- nullable: open counts computed only for active items
 
   source              TEXT,
   synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_tfs_lean_project       ON tfs_workitems_lean (project);
-CREATE INDEX IF NOT EXISTS idx_tfs_lean_release       ON tfs_workitems_lean (release);
-CREATE INDEX IF NOT EXISTS idx_tfs_lean_assigned_upn  ON tfs_workitems_lean (assigned_to_upn);
-CREATE INDEX IF NOT EXISTS idx_tfs_lean_state         ON tfs_workitems_lean (state);
-CREATE INDEX IF NOT EXISTS idx_tfs_lean_feature_id    ON tfs_workitems_lean (feature_id);
-CREATE INDEX IF NOT EXISTS idx_tfs_lean_changed_date  ON tfs_workitems_lean (changed_date);
-CREATE INDEX IF NOT EXISTS idx_tfs_lean_synced_at     ON tfs_workitems_lean (synced_at);
+CREATE INDEX IF NOT EXISTS idx_tfs_analytics_project      ON tfs_workitems_analytics (project);
+CREATE INDEX IF NOT EXISTS idx_tfs_analytics_release      ON tfs_workitems_analytics (release);
+CREATE INDEX IF NOT EXISTS idx_tfs_analytics_assigned_upn ON tfs_workitems_analytics (assigned_to_upn);
+CREATE INDEX IF NOT EXISTS idx_tfs_analytics_state        ON tfs_workitems_analytics (state);
+CREATE INDEX IF NOT EXISTS idx_tfs_analytics_feature_id   ON tfs_workitems_analytics (feature_id);
+CREATE INDEX IF NOT EXISTS idx_tfs_analytics_changed_date ON tfs_workitems_analytics (changed_date);
+CREATE INDEX IF NOT EXISTS idx_tfs_analytics_synced_at    ON tfs_workitems_analytics (synced_at);
