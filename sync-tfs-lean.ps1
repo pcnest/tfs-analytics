@@ -17,7 +17,7 @@ Run:
 #>
 
 param(
-  [string]   $Host           = "https://remote.spdev.us",
+  [string]   $TfsHost           = "https://remote.spdev.us",
   [string]   $Collection     = "SupplyPro.Applications",
   [string]   $Project        = "SupplyPro.Core",
   [string]   $ApiVersion     = "2.0",
@@ -94,7 +94,7 @@ function Find-ReleaseInTags {
 function Invoke-TfsWiql {
   param([string]$WiqlText)
 
-  $url  = "$Host/tfs/$Collection/$Project/_apis/wit/wiql?api-version=$ApiVersion"
+  $url  = "$TfsHost/tfs/$Collection/$Project/_apis/wit/wiql?api-version=$ApiVersion"
   $body = @{ query = $WiqlText } | ConvertTo-Json
 
   $resp = Invoke-RestMethod -Method Post -Uri $url -Headers ($commonHeaders + @{ "Content-Type"="application/json" }) -Body $body
@@ -109,7 +109,7 @@ function Get-TfsWorkItems {
   $all = @()
   foreach ($chunk in Split-List -List $Ids -Size $ChunkSize) {
     $idParam = ($chunk -join ",")
-    $url = "$Host/tfs/$Collection/_apis/wit/workitems?api-version=$ApiVersion&ids=$idParam&`$expand=relations"
+    $url = "$TfsHost/tfs/$Collection/_apis/wit/workitems?api-version=$ApiVersion&ids=$idParam&`$expand=relations"
     $resp = Invoke-RestMethod -Method Get -Uri $url -Headers $commonHeaders
     if ($resp.value) { $all += $resp.value }
   }
@@ -123,7 +123,7 @@ function Get-TfsStatesOnly {
 
   foreach ($chunk in Split-List -List $Ids -Size $ChunkSize) {
     $idParam = ($chunk -join ",")
-    $url = "$Host/tfs/$Collection/_apis/wit/workitems?api-version=$ApiVersion&ids=$idParam&fields=System.State"
+    $url = "$TfsHost/tfs/$Collection/_apis/wit/workitems?api-version=$ApiVersion&ids=$idParam&fields=System.State"
     $resp = Invoke-RestMethod -Method Get -Uri $url -Headers $commonHeaders
     foreach ($wi in ($resp.value ?? @())) {
       $map[[int]$wi.id] = $wi.fields.'System.State'
