@@ -124,10 +124,17 @@ function Get-TfsStatesOnly {
   foreach ($chunk in Split-List -List $Ids -Size $ChunkSize) {
     $idParam = ($chunk -join ",")
     $url = "$TfsHost/tfs/$Collection/_apis/wit/workitems?api-version=$ApiVersion&ids=$idParam&fields=System.State"
-    $resp = Invoke-RestMethod -Method Get -Uri $url -Headers $commonHeaders
-    foreach ($wi in ($resp.value ?? @())) {
-      $map[[int]$wi.id] = $wi.fields.'System.State'
+        try {
+      $resp = Invoke-RestMethod -Method Get -Uri $url -Headers $commonHeaders
+    } catch {
+      Write-Warning "Get-TfsStatesOnly failed for chunk ids=[$idParam]. Error: $($_.Exception.Message)"
+      continue
     }
+
+        foreach ($wi in ($resp.value ?? @())) {
+      $map[[string]$wi.id] = $wi.fields.'System.State'
+    }
+
   }
   return $map
 }
@@ -309,8 +316,8 @@ if ($parentIds.Count -gt 0) {
     if ($p.relations) {
       foreach ($rel in $p.relations) {
         if ($rel.rel -eq "System.LinkTypes.Hierarchy-Reverse") {
-          $segments = ([string]$rel.url).Split('/')
-          $pParentId = [int]$segments[-1]
+          $pParentId = Try-ExtractWorkItemIdFromUrl ([string]$rel.url)
+
           break
         }
       }
@@ -364,13 +371,33 @@ if ($linkedSet.Count -gt 0) {
 
     $openDep = 0
     foreach ($id in $mi._depIds) {
-      $st = $linkStates[$id]
+      # --- SAFE lookup: linkStates might be null if there were no link IDs ---
+if ($null -eq $linkStates -or $linkStates -isnot [hashtable]) {
+  $linkStates = @{}
+}
+
+$key = [string]$id
+$st = $null
+if ($null -ne $id -and $linkStates.ContainsKey($key)) {
+  $st = $linkStates[$key]
+}
+
       if (-not ($TerminalLinkedStates -contains $st)) { $openDep++ }
     }
 
     $openRel = 0
     foreach ($id in $mi._relIds) {
-      $st = $linkStates[$id]
+      # --- SAFE lookup: linkStates might be null if there were no link IDs ---
+if ($null -eq $linkStates -or $linkStates -isnot [hashtable]) {
+  $linkStates = @{}
+}
+
+$key = [string]$id
+$st = $null
+if ($null -ne $id -and $linkStates.ContainsKey($key)) {
+  $st = $linkStates[$key]
+}
+
       if (-not ($TerminalLinkedStates -contains $st)) { $openRel++ }
     }
 
