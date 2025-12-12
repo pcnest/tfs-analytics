@@ -148,6 +148,23 @@ function Post-Ingest {
   Invoke-RestMethod -Method Post -Uri $IngestUrl -Headers $headers -Body $payload
 }
 
+function Try-ExtractWorkItemIdFromUrl {
+  param([string]$Url)
+
+  if ([string]::IsNullOrWhiteSpace($Url)) { return $null }
+
+  # common format: .../_apis/wit/workItems/12345
+  $m = [regex]::Match($Url, "/workitems/(\d+)$", "IgnoreCase")
+  if ($m.Success) { return [int]$m.Groups[1].Value }
+
+  # fallback: last URL segment is numeric
+  $last = ($Url -split "/")[-1]
+  if ($last -match '^\d+$') { return [int]$last }
+
+  return $null
+}
+
+
 # ---------- WIQL ----------
 if ($ReleaseTargets.Count -gt 0) {
   $tagConds = $ReleaseTargets | ForEach-Object { "[System.Tags] CONTAINS '$_'" }
@@ -211,25 +228,30 @@ foreach ($wi in $items) {
       $url = [string]$rel.url
       if ([string]::IsNullOrWhiteSpace($url)) { continue }
 
-      $segments = $url.Split('/')
-      $targetId = [int]$segments[-1]
+      $targetId = Try-ExtractWorkItemIdFromUrl $url
+
 
       if ($relType -eq "System.LinkTypes.Hierarchy-Reverse" -and -not $parentId) {
-        $parentId = $targetId
-        continue
-      }
+  if ($null -ne $targetId) { $parentId = $targetId }
+  continue
+}
 
-      if ($relType -like "System.LinkTypes.Dependency*") {
-        $depCount++
-        if ($computeOpenCounts) { $depIds += $targetId }
-        continue
-      }
+if ($relType -like "System.LinkTypes.Dependency*") {
+  if ($null -ne $targetId) {
+    $depCount++
+    if ($computeOpenCounts) { $depIds += $targetId }
+  }
+  continue
+}
 
-      if ($relType -eq "System.LinkTypes.Related") {
-        $relatedCount++
-        if ($computeOpenCounts) { $relIds += $targetId }
-        continue
-      }
+if ($relType -eq "System.LinkTypes.Related") {
+  if ($null -ne $targetId) {
+    $relatedCount++
+    if ($computeOpenCounts) { $relIds += $targetId }
+  }
+  continue
+}
+
     }
   }
 
