@@ -34,6 +34,19 @@ app.get('/health', async (req, res) => {
 // ---------- Release Health (Release Radar metrics) ----------
 app.get('/api/release-health', async (req, res) => {
   try {
+    const viewExists = await pool.query(
+      "SELECT to_regclass('public.v_release_health') AS view_name"
+    );
+    const hasView = !!viewExists.rows?.[0]?.view_name;
+    if (!hasView) {
+      return res.json({
+        ok: true,
+        rows: [],
+        message:
+          'Release health view not configured yet. Create public.v_release_health to enable it.',
+      });
+    }
+
     const { project, release, includeNoRelease } = req.query;
 
     const proj = project ? String(project).trim() : null;

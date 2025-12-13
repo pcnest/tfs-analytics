@@ -41,23 +41,29 @@ async function loadReleaseHealth() {
   const el = document.getElementById('release-health-body');
   if (!el) return;
 
-  el.textContent = 'Loading…';
+  el.textContent = 'Loading.';
 
-  const r = await fetch('/api/release-health');
-  const data = await r.json();
+  try {
+    const r = await fetch('/api/release-health');
+    const data = await r.json();
 
-  if (!data.ok) {
-    el.textContent = 'Failed to load Release Health.';
-    return;
-  }
+    if (!r.ok) {
+      throw new Error(data?.error || `HTTP ${r.status}`);
+    }
 
-  const rows = data.rows || [];
-  if (!rows.length) {
-    el.textContent = 'No data.';
-    return;
-  }
+    if (!data.ok) {
+      el.textContent =
+        data.message || data.error || 'Failed to load Release Health.';
+      return;
+    }
 
-  el.innerHTML = `
+    const rows = data.rows || [];
+    if (!rows.length) {
+      el.textContent = data.message || 'No data.';
+      return;
+    }
+
+    el.innerHTML = `
     <table class="table">
       <thead>
         <tr>
@@ -93,9 +99,11 @@ async function loadReleaseHealth() {
       </tbody>
     </table>
   `;
-}
-
-function escapeHtml(v) {
+  } catch (err) {
+    console.error('loadReleaseHealth failed', err);
+    el.textContent = 'Failed to load Release Health.';
+  }
+}function escapeHtml(v) {
   return String(v ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -197,3 +205,5 @@ qs('next').addEventListener('click', () => {
 // initial load
 loadReleaseHealth();
 load();
+
+
