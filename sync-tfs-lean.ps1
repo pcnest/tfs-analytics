@@ -17,18 +17,18 @@ Run:
 #>
 
 param(
-  [string]   $TfsHost           = "https://remote.spdev.us",
-  [string]   $Collection     = "SupplyPro.Applications",
-  [string]   $Project        = "SupplyPro.Core",
-  [string]   $ApiVersion     = "2.0",
-  [string[]] $ReleaseTargets = @("80.1.6","4.3.26","18.4","5.0.5"),
-  [int]      $ChunkSize      = 150,
+  [string]   $TfsHost = "https://remote.spdev.us",
+  [string]   $Collection = "SupplyPro.Applications",
+  [string]   $Project = "SupplyPro.Core",
+  [string]   $ApiVersion = "2.0",
+  [string[]] $ReleaseTargets = @("80.1.6", "4.3.26", "18.4", "5.0.5"),
+  [int]      $ChunkSize = 150,
 
   # Open counts are computed only if source ticket state NOT in this list:
-  [string[]] $SkipOpenCountStates = @("Done","Removed"),
+  [string[]] $SkipOpenCountStates = @("Done", "Removed"),
 
   # Linked ticket states treated as "terminal" (NOT open)
-  [string[]] $TerminalLinkedStates = @("Done","Removed","Resolved")
+  [string[]] $TerminalLinkedStates = @("Done", "Removed", "Resolved")
 )
 
 # ---------- Setup ----------
@@ -51,7 +51,7 @@ function Split-List {
   if (-not $List -or $List.Count -eq 0) { return @() }
   $chunks = @()
   for ($i = 0; $i -lt $List.Count; $i += $Size) {
-    $chunks += ,($List[$i..([Math]::Min($i+$Size-1, $List.Count-1))])
+    $chunks += , ($List[$i..([Math]::Min($i + $Size - 1, $List.Count - 1))])
   }
   return $chunks
 }
@@ -61,7 +61,7 @@ function Get-Name {
   if ($null -eq $v) { return $null }
   if ($v -is [PSObject]) {
     if ($v.PSObject.Properties.Name -contains 'displayName') { return $v.displayName }
-    if ($v.PSObject.Properties.Name -contains 'uniqueName')  { return $v.uniqueName }
+    if ($v.PSObject.Properties.Name -contains 'uniqueName') { return $v.uniqueName }
   }
   return [string]$v
 }
@@ -94,10 +94,10 @@ function Find-ReleaseInTags {
 function Invoke-TfsWiql {
   param([string]$WiqlText)
 
-  $url  = "$TfsHost/tfs/$Collection/$Project/_apis/wit/wiql?api-version=$ApiVersion"
+  $url = "$TfsHost/tfs/$Collection/$Project/_apis/wit/wiql?api-version=$ApiVersion"
   $body = @{ query = $WiqlText } | ConvertTo-Json
 
-  $resp = Invoke-RestMethod -Method Post -Uri $url -Headers ($commonHeaders + @{ "Content-Type"="application/json" }) -Body $body
+  $resp = Invoke-RestMethod -Method Post -Uri $url -Headers ($commonHeaders + @{ "Content-Type" = "application/json" }) -Body $body
   if (-not $resp.workItems) { return @() }
   return @($resp.workItems | ForEach-Object { [int]$_.id })
 }
@@ -124,14 +124,15 @@ function Get-TfsStatesOnly {
   foreach ($chunk in Split-List -List $Ids -Size $ChunkSize) {
     $idParam = ($chunk -join ",")
     $url = "$TfsHost/tfs/$Collection/_apis/wit/workitems?api-version=$ApiVersion&ids=$idParam&fields=System.State"
-        try {
+    try {
       $resp = Invoke-RestMethod -Method Get -Uri $url -Headers $commonHeaders
-    } catch {
+    }
+    catch {
       Write-Warning "Get-TfsStatesOnly failed for chunk ids=[$idParam]. Error: $($_.Exception.Message)"
       continue
     }
 
-        foreach ($wi in ($resp.value ?? @())) {
+    foreach ($wi in ($resp.value ?? @())) {
       $map[[string]$wi.id] = $wi.fields.'System.State'
     }
 
@@ -139,7 +140,7 @@ function Get-TfsStatesOnly {
   return $map
 }
 
-function Post-Ingest {
+function Send-Ingest {
   param([object[]]$Rows)
   $payload = @{
     source      = "tfs-weekly-sync"
@@ -155,7 +156,7 @@ function Post-Ingest {
   Invoke-RestMethod -Method Post -Uri $IngestUrl -Headers $headers -Body $payload
 }
 
-function Try-ExtractWorkItemIdFromUrl {
+function Get-ExtractWorkItemIdFromUrl {
   param([string]$Url)
 
   if ([string]::IsNullOrWhiteSpace($Url)) { return $null }
@@ -176,7 +177,8 @@ function Try-ExtractWorkItemIdFromUrl {
 if ($ReleaseTargets.Count -gt 0) {
   $tagConds = $ReleaseTargets | ForEach-Object { "[System.Tags] CONTAINS '$_'" }
   $tagFilter = " AND (" + ($tagConds -join " OR ") + ")"
-} else {
+}
+else {
   $tagFilter = ""
 }
 
@@ -204,24 +206,24 @@ $modelItems = @()
 foreach ($wi in $items) {
   $fields = $wi.fields
 
-  $tags    = $fields.'System.Tags'
+  $tags = $fields.'System.Tags'
   $release = Find-ReleaseInTags -Tags $tags -Targets $ReleaseTargets
 
   # enforce release filter like your M query
   if ($ReleaseTargets.Count -gt 0 -and -not $ReleaseTargets.Contains($release)) { continue }
 
   $assignedToRaw = $fields.'System.AssignedTo'
-  $changedByRaw  = $fields.'System.ChangedBy'
-  $createdByRaw  = $fields.'System.CreatedBy'
+  $changedByRaw = $fields.'System.ChangedBy'
+  $createdByRaw = $fields.'System.CreatedBy'
 
-  $effortRaw      = $fields.'Microsoft.VSTS.Scheduling.Effort'
+  $effortRaw = $fields.'Microsoft.VSTS.Scheduling.Effort'
   $storyPointsRaw = $fields.'Microsoft.VSTS.Scheduling.StoryPoints'
   $effort = $null
-  if ($null -ne $effortRaw)      { $effort = [double]$effortRaw }
+  if ($null -ne $effortRaw) { $effort = [double]$effortRaw }
   elseif ($null -ne $storyPointsRaw) { $effort = [double]$storyPointsRaw }
 
-  $parentId     = $null
-  $depCount     = 0
+  $parentId = $null
+  $depCount = 0
   $relatedCount = 0
   $depIds = @()
   $relIds = @()
@@ -239,57 +241,57 @@ foreach ($wi in $items) {
 
 
       if ($relType -eq "System.LinkTypes.Hierarchy-Reverse" -and -not $parentId) {
-  if ($null -ne $targetId) { $parentId = $targetId }
-  continue
-}
+        if ($null -ne $targetId) { $parentId = $targetId }
+        continue
+      }
 
-if ($relType -like "System.LinkTypes.Dependency*") {
-  if ($null -ne $targetId) {
-    $depCount++
-    if ($computeOpenCounts) { $depIds += $targetId }
-  }
-  continue
-}
+      if ($relType -like "System.LinkTypes.Dependency*") {
+        if ($null -ne $targetId) {
+          $depCount++
+          if ($computeOpenCounts) { $depIds += $targetId }
+        }
+        continue
+      }
 
-if ($relType -eq "System.LinkTypes.Related") {
-  if ($null -ne $targetId) {
-    $relatedCount++
-    if ($computeOpenCounts) { $relIds += $targetId }
-  }
-  continue
-}
+      if ($relType -eq "System.LinkTypes.Related") {
+        if ($null -ne $targetId) {
+          $relatedCount++
+          if ($computeOpenCounts) { $relIds += $targetId }
+        }
+        continue
+      }
 
     }
   }
 
   $obj = [PSCustomObject]@{
-    workItemId       = [int]$wi.id
-    type             = $fields.'System.WorkItemType'
-    title            = $fields.'System.Title'
-    state            = $state
-    reason           = $fields.'System.Reason'
-    assignedTo       = Get-Name -v $assignedToRaw
-    assignedToUPN    = Get-UPN  -v $assignedToRaw
-    project          = $fields.'System.TeamProject'
-    areaPath         = $fields.'System.AreaPath'
-    iterationPath    = $fields.'System.IterationPath'
-    tags             = $tags
-    release          = $release
-    createdBy        = Get-Name -v $createdByRaw
-    changedBy        = Get-Name -v $changedByRaw
-    createdDate      = $fields.'System.CreatedDate'
-    changedDate      = $fields.'System.ChangedDate'
-    stateChangeDate  = $fields.'Microsoft.VSTS.Common.StateChangeDate'
-    severity         = $fields.'Microsoft.VSTS.Common.Severity'
-    effort           = $effort
-    parentId         = $parentId
-    featureId        = $null
-    feature          = $null
+    workItemId         = [int]$wi.id
+    type               = $fields.'System.WorkItemType'
+    title              = $fields.'System.Title'
+    state              = $state
+    reason             = $fields.'System.Reason'
+    assignedTo         = Get-Name -v $assignedToRaw
+    assignedToUPN      = Get-UPN  -v $assignedToRaw
+    project            = $fields.'System.TeamProject'
+    areaPath           = $fields.'System.AreaPath'
+    iterationPath      = $fields.'System.IterationPath'
+    tags               = $tags
+    release            = $release
+    createdBy          = Get-Name -v $createdByRaw
+    changedBy          = Get-Name -v $changedByRaw
+    createdDate        = $fields.'System.CreatedDate'
+    changedDate        = $fields.'System.ChangedDate'
+    stateChangeDate    = $fields.'Microsoft.VSTS.Common.StateChangeDate'
+    severity           = $fields.'Microsoft.VSTS.Common.Severity'
+    effort             = $effort
+    parentId           = $parentId
+    featureId          = $null
+    feature            = $null
 
-    depCount         = $depCount
-    openDepCount     = $computeOpenCounts ? 0 : $null
-    relatedLinkCount = $relatedCount
-    openRelatedCount = $computeOpenCounts ? 0 : $null
+    depCount           = $depCount
+    openDepCount       = $computeOpenCounts ? 0 : $null
+    relatedLinkCount   = $relatedCount
+    openRelatedCount   = $computeOpenCounts ? 0 : $null
 
     _computeOpenCounts = $computeOpenCounts
     _depIds            = $depIds
@@ -311,18 +313,18 @@ if ($parentIds.Count -gt 0) {
   $parents = Get-TfsWorkItems -Ids $parentIds
   foreach ($p in $parents) {
     $pf = $p.fields
-    $pid = [int]$p.id
+    $parentWiId = [int]$p.id
     $pParentId = $null
     if ($p.relations) {
       foreach ($rel in $p.relations) {
         if ($rel.rel -eq "System.LinkTypes.Hierarchy-Reverse") {
-          $pParentId = Try-ExtractWorkItemIdFromUrl ([string]$rel.url)
+          $pParentId = Get-ExtractWorkItemIdFromUrl ([string]$rel.url)
 
           break
         }
       }
     }
-    $parentLookup[$pid] = [PSCustomObject]@{ id=$pid; type=$pf.'System.WorkItemType'; title=$pf.'System.Title'; parentId=$pParentId }
+    $parentLookup[$parentWiId] = [PSCustomObject]@{ id = $parentWiId; type = $pf.'System.WorkItemType'; title = $pf.'System.Title'; parentId = $pParentId }
   }
 }
 
@@ -335,7 +337,8 @@ foreach ($mi in $modelItems) {
     if ($mi.type -eq "Feature") { $mi.featureId = $mi.workItemId }
     elseif ($parentType -eq "Feature") { $mi.featureId = $mi.parentId }
     else { $mi.featureId = $grandparentId }
-  } else {
+  }
+  else {
     if ($mi.type -eq "Feature") { $mi.featureId = $mi.workItemId }
   }
 }
@@ -372,15 +375,15 @@ if ($linkedSet.Count -gt 0) {
     $openDep = 0
     foreach ($id in $mi._depIds) {
       # --- SAFE lookup: linkStates might be null if there were no link IDs ---
-if ($null -eq $linkStates -or $linkStates -isnot [hashtable]) {
-  $linkStates = @{}
-}
+      if ($null -eq $linkStates -or $linkStates -isnot [hashtable]) {
+        $linkStates = @{}
+      }
 
-$key = [string]$id
-$st = $null
-if ($null -ne $id -and $linkStates.ContainsKey($key)) {
-  $st = $linkStates[$key]
-}
+      $key = [string]$id
+      $st = $null
+      if ($null -ne $id -and $linkStates.ContainsKey($key)) {
+        $st = $linkStates[$key]
+      }
 
       if (-not ($TerminalLinkedStates -contains $st)) { $openDep++ }
     }
@@ -388,15 +391,15 @@ if ($null -ne $id -and $linkStates.ContainsKey($key)) {
     $openRel = 0
     foreach ($id in $mi._relIds) {
       # --- SAFE lookup: linkStates might be null if there were no link IDs ---
-if ($null -eq $linkStates -or $linkStates -isnot [hashtable]) {
-  $linkStates = @{}
-}
+      if ($null -eq $linkStates -or $linkStates -isnot [hashtable]) {
+        $linkStates = @{}
+      }
 
-$key = [string]$id
-$st = $null
-if ($null -ne $id -and $linkStates.ContainsKey($key)) {
-  $st = $linkStates[$key]
-}
+      $key = [string]$id
+      $st = $null
+      if ($null -ne $id -and $linkStates.ContainsKey($key)) {
+        $st = $linkStates[$key]
+      }
 
       if (-not ($TerminalLinkedStates -contains $st)) { $openRel++ }
     }
@@ -404,7 +407,8 @@ if ($null -ne $id -and $linkStates.ContainsKey($key)) {
     $mi.openDepCount = $openDep
     $mi.openRelatedCount = $openRel
   }
-} else {
+}
+else {
   Write-Host "No linked IDs to compute open counts."
 }
 
@@ -416,5 +420,5 @@ foreach ($mi in $modelItems) {
 }
 
 Write-Host "Posting $($modelItems.Count) rows to ingest endpoint..."
-$resp = Post-Ingest -Rows $modelItems
+$resp = Send-Ingest -Rows $modelItems
 Write-Host "Done. Server response:" ($resp | ConvertTo-Json -Depth 4)
