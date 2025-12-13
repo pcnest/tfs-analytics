@@ -54,6 +54,17 @@
       min-width: 180px;
     }
 
+    .card.full {
+      flex: 1 1 100%;
+      min-width: 100%;
+    }
+
+    .card h3 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+    }
+
+
     .k {
       font-size: 12px;
       opacity: 0.7;
@@ -194,16 +205,18 @@
       <div class="k">Related (open)*</div>
       <div class="v" id="m_open_rel_total">—</div>
     </div>
+    <div id="release-health" class="card full">
+      <div class="k">Release Radar</div>
+      <div class="v" style="font-size:16px; font-weight:700;">Release Health</div>
+      <div id="release-health-body" style="margin-top:10px;">Loading…</div>
+    </div>
   </div>
   <div class="small muted" style="margin-top:6px;">
     *Open counts are computed only for tickets not in Done/Removed (to keep sync fast). For Done tickets you may see
     blank open counts.
   </div>
 
-  <div id="release-health" class="card">
-    <h3>Release Health</h3>
-    <div id="release-health-body">Loading…</div>
-  </div>
+
 
 
   <div class="footer">

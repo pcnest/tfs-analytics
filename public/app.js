@@ -41,15 +41,26 @@ async function loadReleaseHealth() {
   const el = document.getElementById('release-health-body');
   if (!el) return;
 
-  el.textContent = 'Loading.';
+  el.textContent = 'Loading…';
+
+  // Follow current Release filter (if set)
+  const params = new URLSearchParams();
+  const rel = qs('release')?.value;
+  if (rel && String(rel).trim() !== '') params.set('release', rel);
+
+  const url = `/api/release-health${params.toString() ? `?${params}` : ''}`;
 
   try {
-    const r = await fetch('/api/release-health');
-    const data = await r.json();
+    const r = await fetch(url);
 
-    if (!r.ok) {
-      throw new Error(data?.error || `HTTP ${r.status}`);
+    let data = null;
+    try {
+      data = await r.json();
+    } catch {
+      data = {};
     }
+
+    if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
 
     if (!data.ok) {
       el.textContent =
@@ -64,46 +75,50 @@ async function loadReleaseHealth() {
     }
 
     el.innerHTML = `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Project</th>
-          <th>Release</th>
-          <th>Confidence</th>
-          <th>QA</th>
-          <th>C/H/M/L</th>
-          <th>OnHold</th>
-          <th>Driver</th>
-          <th>Signals</th>
-          <th>Decision</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows
-          .map(
-            (x) => `
+      <table class="table">
+        <thead>
           <tr>
-            <td>${escapeHtml(x.project)}</td>
-            <td>${escapeHtml(x.release)}</td>
-            <td>${x.confidencePct ?? ''}%</td>
-            <td>${escapeHtml(x.qaStatus ?? '')} (${x.qaPct ?? ''}%)</td>
-            <td>${x.critical}/${x.high}/${x.medium}/${x.low}</td>
-            <td>${x.onHold}</td>
-            <td>${escapeHtml(x.confidenceDriver ?? '')}</td>
-            <td>${escapeHtml(x.confidenceSignals ?? '')}</td>
-            <td>${escapeHtml(x.decisionNeeded ?? '')}</td>
+            <th>Project</th>
+            <th>Release</th>
+            <th>Confidence</th>
+            <th>QA</th>
+            <th>C/H/M/L</th>
+            <th>OnHold</th>
+            <th>Driver</th>
+            <th>Signals</th>
+            <th>Top Blockers</th>
+            <th>Decision</th>
           </tr>
-        `
-          )
-          .join('')}
-      </tbody>
-    </table>
-  `;
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (x) => `
+            <tr>
+              <td>${escapeHtml(x.project)}</td>
+              <td>${escapeHtml(x.release)}</td>
+              <td>${x.confidencePct ?? ''}%</td>
+              <td>${escapeHtml(x.qaStatus ?? '')} (${x.qaPct ?? ''}%)</td>
+              <td>${x.critical}/${x.high}/${x.medium}/${x.low}</td>
+              <td>${x.onHold}</td>
+              <td>${escapeHtml(x.confidenceDriver ?? '')}</td>
+              <td>${escapeHtml(x.confidenceSignals ?? '')}</td>
+              <td>${escapeHtml(x.topBlockers ?? '')}</td>
+              <td>${escapeHtml(x.decisionNeeded ?? '')}</td>
+            </tr>
+          `
+            )
+            .join('')}
+        </tbody>
+      </table>
+    `;
   } catch (err) {
     console.error('loadReleaseHealth failed', err);
     el.textContent = 'Failed to load Release Health.';
   }
-}function escapeHtml(v) {
+}
+
+function escapeHtml(v) {
   return String(v ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -181,6 +196,7 @@ async function load() {
 qs('btnLoad').addEventListener('click', () => {
   offset = 0;
   load();
+  loadReleaseHealth();
 });
 
 qs('btnExport').addEventListener('click', () => {
@@ -205,5 +221,3 @@ qs('next').addEventListener('click', () => {
 // initial load
 loadReleaseHealth();
 load();
-
-

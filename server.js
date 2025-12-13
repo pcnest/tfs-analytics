@@ -76,7 +76,7 @@ app.get('/api/release-health', async (req, res) => {
         "QA status (pass/total)"          AS "qaStatus",
         "QA%"::int                        AS "qaPct",
 
-        "Top blockers"                    AS "topBlockers",
+        "Top Blockers"                    AS "topBlockers",
         "Decision Needed (Y/N)"           AS "decisionNeeded"
       FROM public.v_release_health
       WHERE
