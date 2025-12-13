@@ -237,7 +237,7 @@ foreach ($wi in $items) {
       $url = [string]$rel.url
       if ([string]::IsNullOrWhiteSpace($url)) { continue }
 
-      $targetId = Try-ExtractWorkItemIdFromUrl $url
+      $targetId = Get-ExtractWorkItemIdFromUrl $url
 
 
       if ($relType -eq "System.LinkTypes.Hierarchy-Reverse" -and -not $parentId) {
