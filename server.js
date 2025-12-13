@@ -31,6 +31,56 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// ---------- Release Health (Release Radar metrics) ----------
+app.get('/api/release-health', async (req, res) => {
+  try {
+    const { project, release, includeNoRelease } = req.query;
+
+    const proj = project ? String(project).trim() : null;
+    const rel = release ? String(release).trim() : null;
+
+    const includeNoRel =
+      String(includeNoRelease || '0').toLowerCase() === '1' ||
+      String(includeNoRelease || '').toLowerCase() === 'true';
+
+    const sql = `
+      SELECT
+        project,
+        release,
+
+        "ConfidencePct"::int               AS "confidencePct",
+        "Confidence Signals"              AS "confidenceSignals",
+        "Confidence Driver"               AS "confidenceDriver",
+
+        "Critical"::int                   AS "critical",
+        "High"::int                       AS "high",
+        "Medium"::int                     AS "medium",
+        "Low"::int                        AS "low",
+        "OnHold"::int                     AS "onHold",
+
+        "QAPass"::int                     AS "qaPass",
+        "QATotal"::int                    AS "qaTotal",
+        "QA status (pass/total)"          AS "qaStatus",
+        "QA%"::int                        AS "qaPct",
+
+        "Top blockers"                    AS "topBlockers",
+        "Decision Needed (Y/N)"           AS "decisionNeeded"
+      FROM public.v_release_health
+      WHERE
+        ($1::text IS NULL OR project = $1)
+        AND ($2::text IS NULL OR release = $2)
+        AND ($3::bool = true OR release <> '(no release)')
+      ORDER BY project, release;
+    `;
+
+    const { rows } = await pool.query(sql, [proj, rel, includeNoRel]);
+    res.json({ ok: true, rows });
+  } catch (e) {
+    console.error('release-health error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // ---------- Static dashboard ----------
 app.use('/', express.static(path.join(__dirname, 'public')));
 
