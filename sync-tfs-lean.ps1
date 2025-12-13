@@ -367,7 +367,8 @@ foreach ($mi in $modelItems) {
 
 if ($linkedSet.Count -gt 0) {
   Write-Host "Fetching linked states only (System.State): $($linkedSet.Count)"
-  $linkStates = Get-TfsStatesOnly -Ids $linkedSet.ToArray()
+  $linkedIds = [System.Linq.Enumerable]::ToArray([System.Collections.Generic.IEnumerable[int]]$linkedSet)
+  $linkStates = Get-TfsStatesOnly -Ids $linkedIds
 
   foreach ($mi in $modelItems) {
     if (-not $mi._computeOpenCounts) { continue }
