@@ -47,6 +47,17 @@ app.get('/api/release-health', async (req, res) => {
       });
     }
 
+    const colsInfo = await pool.query(
+      `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'v_release_health'
+    `
+    );
+    const hasTopBlockerIds = colsInfo.rows.some(
+      (c) => c.column_name === 'Top Blocker IDs'
+    );
+
     const { project, release, includeNoRelease } = req.query;
 
     const proj = project ? String(project).trim() : null;
@@ -77,6 +88,7 @@ app.get('/api/release-health', async (req, res) => {
         "QA%"::int                        AS "qaPct",
 
         "Top Blockers"                    AS "topBlockers",
+        ${hasTopBlockerIds ? `"Top Blocker IDs"            AS "topBlockerIds",` : ''}
         "Decision Needed (Y/N)"           AS "decisionNeeded"
       FROM public.v_release_health
       WHERE

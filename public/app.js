@@ -103,7 +103,7 @@ async function loadReleaseHealth() {
               <td>${x.onHold}</td>
               <td>${escapeHtml(x.confidenceDriver ?? '')}</td>
               <td>${escapeHtml(x.confidenceSignals ?? '')}</td>
-              <td>${formatBlockers(x.topBlockers)}</td>
+              <td>${formatBlockers(x.topBlockers, x.topBlockerIds)}</td>
               <td>${escapeHtml(x.decisionNeeded ?? '')}</td>
             </tr>
           `
@@ -127,17 +127,31 @@ function escapeHtml(v) {
     .replaceAll("'", '&#039;');
 }
 
-function formatBlockers(text) {
-  const parts = String(text ?? '')
+function formatBlockers(text, idsRaw) {
+  const texts = String(text ?? '')
     .split('|')
     .map((s) => s.trim())
     .filter(Boolean);
 
-  if (!parts.length) return '-';
+  const ids = String(idsRaw ?? '')
+    .split('|')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-  return `<ul class="blockers-list">${parts
-    .map((s) => `<li>${escapeHtml(s)}</li>`)
-    .join('')}</ul>`;
+  const count = Math.max(texts.length, ids.length);
+  if (count === 0) return '-';
+
+  const items = [];
+  for (let i = 0; i < count; i += 1) {
+    const t = texts[i] ?? '';
+    const id = ids[i] ?? '';
+    const label = id
+      ? `#${escapeHtml(id)}${t ? ` — ${escapeHtml(t)}` : ''}`
+      : escapeHtml(t || '');
+    items.push(`<li>${label}</li>`);
+  }
+
+  return `<ul class="blockers-list">${items.join('')}</ul>`;
 }
 
 async function load() {
