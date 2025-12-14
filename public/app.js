@@ -103,7 +103,7 @@ async function loadReleaseHealth() {
               <td>${x.onHold}</td>
               <td>${escapeHtml(x.confidenceDriver ?? '')}</td>
               <td>${escapeHtml(x.confidenceSignals ?? '')}</td>
-              <td>${escapeHtml(x.topBlockers ?? '')}</td>
+              <td>${formatBlockers(x.topBlockers)}</td>
               <td>${escapeHtml(x.decisionNeeded ?? '')}</td>
             </tr>
           `
@@ -125,6 +125,19 @@ function escapeHtml(v) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function formatBlockers(text) {
+  const parts = String(text ?? '')
+    .split('|')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (!parts.length) return '-';
+
+  return `<ul class="blockers-list">${parts
+    .map((s) => `<li>${escapeHtml(s)}</li>`)
+    .join('')}</ul>`;
 }
 
 async function load() {
@@ -210,4 +223,3 @@ qs('next').addEventListener('click', () => {
 // initial load
 loadReleaseHealth();
 load();
-

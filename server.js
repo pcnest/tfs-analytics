@@ -87,7 +87,12 @@ app.get('/api/release-health', async (req, res) => {
     `;
 
     const { rows } = await pool.query(sql, [proj, rel, includeNoRel]);
-    res.json({ ok: true, rows });
+    const mappedRows = rows.map((row) => ({
+      ...row,
+      project: mapProjectForRelease(row.release, row.project),
+    }));
+
+    res.json({ ok: true, rows: mappedRows });
   } catch (e) {
     console.error('release-health error:', e);
     res.status(500).json({ ok: false, error: String(e?.message || e) });
@@ -130,6 +135,15 @@ function chunkArray(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+function mapProjectForRelease(release, currentProject) {
+  const r = release ? String(release) : '';
+  if (/^18\./.test(r)) return 'Agent7';
+  if (/^5\./.test(r)) return 'Mobile';
+  if (/^80\.1\./.test(r)) return 'NextGen';
+  if (/^4\.3\./.test(r)) return 'SSIS';
+  return currentProject;
 }
 
 // Build a single multi-row upsert statement (chunked) for good performance.
