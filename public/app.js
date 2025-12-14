@@ -41,7 +41,7 @@ async function loadReleaseHealth() {
   const el = document.getElementById('release-health-body');
   if (!el) return;
 
-  el.textContent = 'Loading…';
+  el.textContent = 'Loading...';
 
   // Follow current Release filter (if set)
   const params = new URLSearchParams();
@@ -130,7 +130,7 @@ function escapeHtml(v) {
 async function load() {
   qs(
     'tbody'
-  ).innerHTML = `<tr><td colspan="11" class="muted">Loading…</td></tr>`;
+  ).innerHTML = `<tr><td colspan="8" class="muted">Loading...</td></tr>`;
   qs('offsetLabel').textContent = String(offset);
 
   const params = buildParams();
@@ -138,7 +138,7 @@ async function load() {
   const data = await res.json();
 
   if (!data.ok) {
-    qs('tbody').innerHTML = `<tr><td colspan="11" class="muted">Error: ${
+    qs('tbody').innerHTML = `<tr><td colspan="8" class="muted">Error: ${
       data.error || 'unknown'
     }</td></tr>`;
     return;
@@ -155,25 +155,18 @@ async function load() {
   if (data.rows.length === 0) {
     qs(
       'tbody'
-    ).innerHTML = `<tr><td colspan="11" class="muted">No rows match the filters.</td></tr>`;
+    ).innerHTML = `<tr><td colspan="8" class="muted">No rows match the filters.</td></tr>`;
     return;
   }
 
   qs('tbody').innerHTML = data.rows
-    .map((r) => {
-      const openDep =
-        r.openDepCount === null || r.openDepCount === undefined
-          ? ''
-          : r.openDepCount;
-      const openRel =
-        r.openRelatedCount === null || r.openRelatedCount === undefined
-          ? ''
-          : r.openRelatedCount;
-      return `
+    .map(
+      (r) => `
       <tr>
         <td><span class="pill">${r.workItemId}</span></td>
         <td>${fmt(r.type)}</td>
         <td class="row-title">${fmt(r.title)}</td>
+        <td>${fmt(r.severity)}</td>
         <td>${fmt(r.state)}</td>
         <td>${fmt(r.release)}</td>
         <td>
@@ -182,14 +175,10 @@ async function load() {
             r.assignedToUPN
           )}</div>
         </td>
-        <td class="right">${fmt(r.depCount)}</td>
-        <td class="right">${openDep}</td>
-        <td class="right">${fmt(r.relatedLinkCount)}</td>
-        <td class="right">${openRel}</td>
         <td>${fmtDate(r.changedDate)}</td>
       </tr>
-    `;
-    })
+    `
+    )
     .join('');
 }
 
@@ -221,3 +210,4 @@ qs('next').addEventListener('click', () => {
 // initial load
 loadReleaseHealth();
 load();
+
