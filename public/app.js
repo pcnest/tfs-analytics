@@ -37,6 +37,137 @@ function fmtDate(v) {
   return d.toISOString().slice(0, 10);
 }
 
+function buildBurnupSvg(rows) {
+  // rows: [{ t, total_scope, done_scope }, ...]
+  const W = 720;
+  const H = 160;
+
+  const padL = 44,
+    padR = 14,
+    padT = 14,
+    padB = 28;
+
+  const toMs = (v) => {
+    const d = new Date(v);
+    const ms = d.getTime();
+    return Number.isFinite(ms) ? ms : null;
+  };
+
+  const pts = rows
+    .map((r) => ({
+      t: r.t,
+      ms: toMs(r.t),
+      total: Number(r.total_scope ?? 0),
+      done: Number(r.done_scope ?? 0),
+    }))
+    .filter((p) => p.ms !== null);
+
+  if (pts.length < 2) return '';
+
+  const t0 = pts[0].ms;
+  const t1 = pts[pts.length - 1].ms;
+  const dt = Math.max(1, t1 - t0);
+
+  const maxY = Math.max(1, ...pts.map((p) => p.total));
+
+  const xFor = (ms) => padL + ((W - padL - padR) * (ms - t0)) / dt;
+
+  const yFor = (v) => padT + (H - padT - padB) * (1 - v / maxY);
+
+  const fmtTick = (ms) => {
+    const d = new Date(ms);
+    // YYYY-MM-DD HH:mm (UTC)
+    return d.toISOString().replace('T', ' ').slice(0, 16);
+  };
+
+  const donePts = pts
+    .map((p) => `${xFor(p.ms).toFixed(1)},${yFor(p.done).toFixed(1)}`)
+    .join(' ');
+  const totalPts = pts
+    .map((p) => `${xFor(p.ms).toFixed(1)},${yFor(p.total).toFixed(1)}`)
+    .join(' ');
+
+  const y0 = yFor(0);
+  const yMid = yFor(maxY / 2);
+  const yMax = yFor(maxY);
+
+  const firstX = xFor(t0);
+  const lastX = xFor(t1);
+
+  const last = pts[pts.length - 1];
+  const lastDoneX = xFor(last.ms),
+    lastDoneY = yFor(last.done);
+  const lastTotalX = xFor(last.ms),
+    lastTotalY = yFor(last.total);
+
+  // Minimal “legend” in the SVG itself.
+  return `
+    <div style="margin-top:10px;">
+      <div class="muted" style="font-size:12px; margin-bottom:6px;">Burnup trend</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="160" role="img" aria-label="Burnup chart">
+        <!-- grid -->
+        <line x1="${padL}" y1="${yMax}" x2="${
+    W - padR
+  }" y2="${yMax}" stroke="#000" opacity="0.10" vector-effect="non-scaling-stroke" />
+        <line x1="${padL}" y1="${yMid}" x2="${
+    W - padR
+  }" y2="${yMid}" stroke="#000" opacity="0.10" vector-effect="non-scaling-stroke" />
+        <line x1="${padL}" y1="${y0}"   x2="${
+    W - padR
+  }" y2="${y0}"   stroke="#000" opacity="0.10" vector-effect="non-scaling-stroke" />
+
+        <!-- y labels -->
+        <text x="${padL - 8}" y="${
+    yMax + 4
+  }" text-anchor="end" font-size="10" fill="#000" opacity="0.55">${maxY}</text>
+        <text x="${padL - 8}" y="${
+    yMid + 4
+  }" text-anchor="end" font-size="10" fill="#000" opacity="0.55">${Math.round(
+    maxY / 2
+  )}</text>
+        <text x="${padL - 8}" y="${
+    y0 + 4
+  }"   text-anchor="end" font-size="10" fill="#000" opacity="0.55">0</text>
+
+        <!-- x labels -->
+        <text x="${firstX}" y="${
+    H - 10
+  }" text-anchor="start" font-size="10" fill="#000" opacity="0.55">${fmtTick(
+    t0
+  )}</text>
+        <text x="${lastX}"  y="${
+    H - 10
+  }" text-anchor="end"   font-size="10" fill="#000" opacity="0.55">${fmtTick(
+    t1
+  )}</text>
+
+        <!-- total scope line (lighter) -->
+        <polyline points="${totalPts}" fill="none" stroke="#000" opacity="0.35" stroke-width="2" vector-effect="non-scaling-stroke" />
+
+        <!-- done line (darker) -->
+        <polyline points="${donePts}" fill="none" stroke="#000" opacity="0.95" stroke-width="2.5" vector-effect="non-scaling-stroke" />
+
+        <!-- last point markers -->
+        <circle cx="${lastTotalX}" cy="${lastTotalY}" r="3.5" fill="#000" opacity="0.35" />
+        <circle cx="${lastDoneX}"  cy="${lastDoneY}"  r="4"   fill="#000" opacity="0.95" />
+
+        <!-- tiny legend -->
+        <rect x="${padL}" y="${padT}" width="12" height="3" fill="#000" opacity="0.95"></rect>
+        <text x="${padL + 18}" y="${
+    padT + 4
+  }" font-size="10" fill="#000" opacity="0.85">Done</text>
+
+        <rect x="${
+          padL + 70
+        }" y="${padT}" width="12" height="3" fill="#000" opacity="0.35"></rect>
+        <text x="${padL + 88}" y="${
+    padT + 4
+  }" font-size="10" fill="#000" opacity="0.85">Total</text>
+      </svg>
+    </div>
+  `;
+}
+
 async function loadReleaseHealth() {
   const el = document.getElementById('release-health-body');
   if (!el) return;
@@ -130,9 +261,7 @@ async function loadReleaseProgress(release) {
 
   el.textContent = 'Loading...';
 
-  // While testing (multiple syncs per day), "hour" is more satisfying.
-  // Switch to "day" after a week of data.
-  const bucket = 'hour';
+  const bucket = 'day'; // stakeholder-friendly default (switch to 'hour' if you want)
 
   try {
     const [burnR, scopeR] = await Promise.all([
@@ -153,55 +282,96 @@ async function loadReleaseProgress(release) {
       throw new Error(scope.error || `scope HTTP ${scopeR.status}`);
 
     const rows = burn.rows || [];
+    const last = rows.length ? rows[rows.length - 1] : null;
 
-    const head = `
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div><span class="muted">Baseline</span>: <b>${
-          scope.baseline_scope ?? 0
-        }</b></div>
-        <div><span class="muted">Current</span>: <b>${
-          scope.current_scope ?? 0
-        }</b></div>
-        <div><span class="muted">Added</span>: <b>${
-          scope.added_scope ?? 0
-        }</b></div>
-        <div><span class="muted">Removed</span>: <b>${
-          scope.removed_scope ?? 0
-        }</b></div>
-        <div><span class="muted">Delivered (baseline)</span>: <b>${
-          scope.delivered_from_baseline ?? 0
-        }</b></div>
-        <div><span class="muted">Predictability</span>: <b>${
-          scope.predictabilityPct ?? 0
-        }%</b></div>
+    const total = last?.total_scope ?? scope.current_scope ?? 0;
+    const done = last?.done_scope ?? 0;
+    const remaining = Math.max(0, total - done);
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+    const asOf = scope.latest_at
+      ? new Date(scope.latest_at)
+      : last?.t
+      ? new Date(last.t)
+      : null;
+    const asOfStr = asOf
+      ? asOf.toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+      : '—';
+
+    const committed = scope.baseline_scope ?? 0;
+    const current = scope.current_scope ?? 0;
+    const added = scope.added_scope ?? 0;
+    const removed = scope.removed_scope ?? 0;
+    const deliveredCommitted = scope.delivered_from_baseline ?? 0;
+    const commitMet = scope.predictabilityPct ?? 0;
+
+    const progressBar = `
+      <div style="margin-top:8px;">
+        <div class="muted" style="font-size:12px; display:flex; justify-content:space-between;">
+          <span><b>${done}</b> done / <b>${total}</b> total</span>
+          <span><b>${pct}%</b></span>
+        </div>
+        <div style="height:10px; border:1px solid #3333; border-radius:999px; overflow:hidden; margin-top:6px;">
+          <div style="height:100%; width:${pct}%; background:#111;"></div>
+        </div>
       </div>
     `;
 
-    const table = rows.length
-      ? `
-        <table>
-          <thead><tr><th>Time</th><th>Total</th><th>Done</th></tr></thead>
-          <tbody>
-            ${rows
-              .map(
-                (x) => `
-              <tr>
-                <td>${new Date(x.t)
-                  .toISOString()
-                  .replace('T', ' ')
-                  .slice(0, 16)}</td>
-                <td>${x.total_scope}</td>
-                <td>${x.done_scope}</td>
-              </tr>
-            `
-              )
-              .join('')}
-          </tbody>
-        </table>
-      `
-      : `<div class="muted" style="margin-top:8px;">No burnup data yet. Run sync at least twice.</div>`;
+    const summary = `
+      <div class="muted" style="margin-bottom:6px;">Release <b>${escapeHtml(
+        rel
+      )}</b> — as of <b>${asOfStr}</b></div>
 
-    el.innerHTML = head + table;
+      <div style="display:flex;gap:14px;flex-wrap:wrap; align-items:baseline;">
+        <div><span class="muted">Progress</span>: <b>${done}/${total}</b> (<b>${pct}%</b>)</div>
+        <div><span class="muted">Remaining</span>: <b>${remaining}</b></div>
+        <div><span class="muted">Commitment met</span>: <b>${commitMet}%</b> <span class="muted">(delivered of committed)</span></div>
+        <div><span class="muted">Scope change</span>: <b>+${added}</b> / <b>-${removed}</b> <span class="muted">(since baseline)</span></div>
+      </div>
+
+      ${progressBar}
+
+      <div style="margin-top:10px; display:flex; gap:14px; flex-wrap:wrap;">
+        <div class="muted">Committed (baseline): <b>${committed}</b></div>
+        <div class="muted">Current scope: <b>${current}</b></div>
+        <div class="muted">Delivered of committed: <b>${deliveredCommitted}</b></div>
+      </div>
+    `;
+
+    let trend = '';
+    if (rows.length >= 2) {
+      trend = `
+    <details style="margin-top:12px;">
+      <summary style="cursor:pointer;">Show burnup history</summary>
+      <table>
+        <thead><tr><th>Time</th><th>Total</th><th>Done</th></tr></thead>
+        <tbody>
+          ${rows
+            .map(
+              (x) => `
+            <tr>
+              <td>${new Date(x.t)
+                .toISOString()
+                .replace('T', ' ')
+                .slice(0, 16)}</td>
+              <td>${x.total_scope}</td>
+              <td>${x.done_scope}</td>
+            </tr>
+          `
+            )
+            .join('')}
+        </tbody>
+      </table>
+    </details>
+  `;
+    }
+
+    const chart =
+      rows.length >= 2
+        ? buildBurnupSvg(rows)
+        : `<div class="muted" style="margin-top:10px;">Only ${rows.length} data point so far. Burnup trend will appear after at least 2 sync runs.</div>`;
+
+    el.innerHTML = summary + chart + trend;
   } catch (err) {
     console.error('loadReleaseProgress failed', err);
     el.textContent = 'Failed to load Release Progress.';
