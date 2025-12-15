@@ -305,73 +305,81 @@ async function loadReleaseProgress(release) {
     const deliveredCommitted = scope.delivered_from_baseline ?? 0;
     const commitMet = scope.predictabilityPct ?? 0;
 
-    const progressBar = `
-      <div style="margin-top:8px;">
-        <div class="muted" style="font-size:12px; display:flex; justify-content:space-between;">
-          <span><b>${done}</b> done / <b>${total}</b> total</span>
-          <span><b>${pct}%</b></span>
-        </div>
-        <div style="height:10px; border:1px solid #3333; border-radius:999px; overflow:hidden; margin-top:6px;">
-          <div style="height:100%; width:${pct}%; background:#111;"></div>
-        </div>
+    const header = `
+      <div class="muted" style="margin-bottom:8px;">
+        Release <b>${escapeHtml(rel)}</b> — as of <b>${asOfStr}</b>
       </div>
     `;
 
-    const summary = `
-      <div class="muted" style="margin-bottom:6px;">Release <b>${escapeHtml(
-        rel
-      )}</b> — as of <b>${asOfStr}</b></div>
+    const cards = `
+      <div class="mini-cards">
+        <div class="mini-card">
+          <div class="mini-k">Progress</div>
+          <div class="mini-v">${pct}%</div>
+          <div class="mini-sub">${done} done / ${total} total</div>
+          <div class="mini-bar"><div style="width:${pct}%;"></div></div>
+        </div>
 
-      <div style="display:flex;gap:14px;flex-wrap:wrap; align-items:baseline;">
-        <div><span class="muted">Progress</span>: <b>${done}/${total}</b> (<b>${pct}%</b>)</div>
-        <div><span class="muted">Remaining</span>: <b>${remaining}</b></div>
-        <div><span class="muted">Commitment met</span>: <b>${commitMet}%</b> <span class="muted">(delivered of committed)</span></div>
-        <div><span class="muted">Scope change</span>: <b>+${added}</b> / <b>-${removed}</b> <span class="muted">(since baseline)</span></div>
-      </div>
+        <div class="mini-card">
+          <div class="mini-k">Remaining</div>
+          <div class="mini-v">${remaining}</div>
+          <div class="mini-sub">tickets</div>
+        </div>
 
-      ${progressBar}
+        <div class="mini-card">
+          <div class="mini-k">Commitment met</div>
+          <div class="mini-v">${commitMet}%</div>
+          <div class="mini-sub">${deliveredCommitted}/${committed} delivered (baseline)</div>
+        </div>
 
-      <div style="margin-top:10px; display:flex; gap:14px; flex-wrap:wrap;">
-        <div class="muted">Committed (baseline): <b>${committed}</b></div>
-        <div class="muted">Current scope: <b>${current}</b></div>
-        <div class="muted">Delivered of committed: <b>${deliveredCommitted}</b></div>
+        <div class="mini-card">
+          <div class="mini-k">Scope change</div>
+          <div class="mini-v">+${added} / -${removed}</div>
+          <div class="mini-sub">since baseline</div>
+        </div>
       </div>
     `;
-
-    let trend = '';
-    if (rows.length >= 2) {
-      trend = `
-    <details style="margin-top:12px;">
-      <summary style="cursor:pointer;">Show burnup history</summary>
-      <table>
-        <thead><tr><th>Time</th><th>Total</th><th>Done</th></tr></thead>
-        <tbody>
-          ${rows
-            .map(
-              (x) => `
-            <tr>
-              <td>${new Date(x.t)
-                .toISOString()
-                .replace('T', ' ')
-                .slice(0, 16)}</td>
-              <td>${x.total_scope}</td>
-              <td>${x.done_scope}</td>
-            </tr>
-          `
-            )
-            .join('')}
-        </tbody>
-      </table>
-    </details>
-  `;
-    }
 
     const chart =
       rows.length >= 2
         ? buildBurnupSvg(rows)
         : `<div class="muted" style="margin-top:10px;">Only ${rows.length} data point so far. Burnup trend will appear after at least 2 sync runs.</div>`;
 
-    el.innerHTML = summary + chart + trend;
+    const foot = `
+      <div class="muted" style="margin-top:10px;">
+        Baseline scope: <b>${committed}</b> · Current scope: <b>${current}</b>
+      </div>
+    `;
+
+    const drilldown =
+      rows.length >= 2
+        ? `
+      <details style="margin-top:12px;">
+        <summary style="cursor:pointer;">Show burnup history</summary>
+        <table>
+          <thead><tr><th>Time</th><th>Total</th><th>Done</th></tr></thead>
+          <tbody>
+            ${rows
+              .map(
+                (x) => `
+              <tr>
+                <td>${new Date(x.t)
+                  .toISOString()
+                  .replace('T', ' ')
+                  .slice(0, 16)}</td>
+                <td>${x.total_scope}</td>
+                <td>${x.done_scope}</td>
+              </tr>
+            `
+              )
+              .join('')}
+          </tbody>
+        </table>
+      </details>
+    `
+        : '';
+
+    el.innerHTML = header + cards + chart + foot + drilldown;
   } catch (err) {
     console.error('loadReleaseProgress failed', err);
     el.textContent = 'Failed to load Release Progress.';
