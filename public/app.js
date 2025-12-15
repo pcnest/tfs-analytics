@@ -777,8 +777,9 @@ async function load() {
     .join('');
 }
 
-qs('btnLoad').addEventListener('click', () => {
+qs('btnLoad').addEventListener('click', async () => {
   offset = 0;
+  await loadConfig();
   load();
   loadReleaseHealth();
   loadReleaseProgress(qs('release')?.value);
