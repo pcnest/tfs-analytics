@@ -37,6 +37,37 @@ function fmtDate(v) {
   return d.toISOString().slice(0, 10);
 }
 
+let APP_CFG = null;
+
+async function loadConfig() {
+  if (APP_CFG) return APP_CFG;
+  try {
+    const r = await fetch('/api/config');
+    const j = await r.json().catch(() => ({}));
+    APP_CFG = r.ok && j.ok ? j : {};
+  } catch {
+    APP_CFG = {};
+  }
+  return APP_CFG;
+}
+
+function workItemHref(id) {
+  const tpl = APP_CFG?.tfsWorkItemUrlTemplate;
+  if (!tpl) return null;
+  return tpl.replace('{id}', encodeURIComponent(String(id)));
+}
+
+function renderIdPill(id) {
+  const href = workItemHref(id);
+  const label = escapeHtml(id);
+  if (href) {
+    return `<a class="pill" href="${escapeHtml(
+      href
+    )}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  }
+  return `<span class="pill">${label}</span>`;
+}
+
 function buildBurnupSvg(rows) {
   // rows: [{ t, total_scope, done_scope }, ...]
   const W = 720;
@@ -475,7 +506,7 @@ async function loadReleaseInsights(release) {
       .map(
         (x) => `
         <li style="margin:4px 0;">
-          <span class="pill">${x.work_item_id}</span>
+          ${renderIdPill(x.work_item_id)}
           <span class="muted">(${escapeHtml(x.state)} • ${x.age_days}d)</span>
           <div style="margin-top:2px;">${escapeHtml(x.title || '')}</div>
         </li>
@@ -487,7 +518,7 @@ async function loadReleaseInsights(release) {
       .map(
         (x) => `
         <li style="margin:4px 0;">
-          <span class="pill">${x.work_item_id}</span>
+          ${renderIdPill(x.work_item_id)}
           <span class="muted">(${escapeHtml(x.state)} • open deps: ${
           x.open_dep_count
         })</span>
@@ -555,7 +586,7 @@ async function loadReleaseCycle(release) {
     const c = data.counts || {};
     const f = data.flow || {};
 
-    const done7 = Number(f.done_events ?? 0);
+    const done7 = Number(f.done_items ?? f.done_events ?? 0);
     const perDay = (done7 / 7).toFixed(2);
 
     const rework7 = Number(f.rework_events ?? 0);
@@ -615,7 +646,7 @@ async function loadReleaseCycle(release) {
             .map(
               (x) => `
             <li>
-              <span class="pill">${x.id}</span>
+              ${renderIdPill(x.id)}
               <span class="muted">(${escapeHtml(x.state)} • ${Number(
                 x.age_days ?? 0
               )}d)</span><br/>
@@ -680,8 +711,9 @@ function formatBlockers(text, idsRaw) {
   for (let i = 0; i < count; i += 1) {
     const t = texts[i] ?? '';
     const id = ids[i] ?? '';
-    const label = id
-      ? `#${escapeHtml(id)}${t ? ` — ${escapeHtml(t)}` : ''}`
+    const pill = id ? renderIdPill(id) : '';
+    const label = pill
+      ? `${pill}${t ? ` — ${escapeHtml(t)}` : ''}`
       : escapeHtml(t || '');
     items.push(`<li>${label}</li>`);
   }
@@ -725,7 +757,7 @@ async function load() {
     .map(
       (r) => `
       <tr>
-        <td><span class="pill">${r.workItemId}</span></td>
+        <td>${renderIdPill(r.workItemId)}</td>
         <td>${fmt(r.type)}</td>
         <td class="row-title">${fmt(r.title)}</td>
         <td>${fmt(r.severity)}</td>
@@ -773,8 +805,11 @@ qs('next').addEventListener('click', () => {
 });
 
 // initial load
-loadReleaseHealth();
-loadReleaseProgress(qs('release')?.value);
-loadReleaseInsights(qs('release')?.value);
-loadReleaseCycle(qs('release')?.value);
-load();
+(async function boot() {
+  await loadConfig();
+  loadReleaseHealth();
+  loadReleaseProgress(qs('release')?.value);
+  loadReleaseInsights(qs('release')?.value);
+  loadReleaseCycle(qs('release')?.value);
+  load();
+})();

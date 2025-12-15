@@ -9,6 +9,7 @@ app.use(express.json({ limit: '10mb' }));
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL;
 const SYNC_API_KEY = process.env.SYNC_API_KEY || ''; // required for POST ingest
+const TFS_WORKITEM_URL_TEMPLATE = process.env.TFS_WORKITEM_URL_TEMPLATE || '';
 
 if (!DATABASE_URL) {
   console.error('ERROR: DATABASE_URL env var not set.');
@@ -29,6 +30,13 @@ app.get('/health', async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
+});
+
+app.get('/api/config', (req, res) => {
+  res.json({
+    ok: true,
+    tfsWorkItemUrlTemplate: TFS_WORKITEM_URL_TEMPLATE, // e.g. ".../_workitems/edit/{id}"
+  });
 });
 
 // ---------- Release Health (Release Radar metrics) ----------
