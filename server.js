@@ -88,7 +88,11 @@ app.get('/api/release-health', async (req, res) => {
         "QA%"::int                        AS "qaPct",
 
         "Top Blockers"                    AS "topBlockers",
-        ${hasTopBlockerIds ? `"Top Blocker IDs"            AS "topBlockerIds",` : ''}
+        ${
+          hasTopBlockerIds
+            ? `"Top Blocker IDs"            AS "topBlockerIds",`
+            : ''
+        }
         "Decision Needed (Y/N)"           AS "decisionNeeded"
       FROM public.v_release_health
       WHERE
@@ -107,6 +111,98 @@ app.get('/api/release-health', async (req, res) => {
     res.json({ ok: true, rows: mappedRows });
   } catch (e) {
     console.error('release-health error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// Burnup endpoint
+app.get('/api/release-burnup', async (req, res) => {
+  const release = (req.query.release || '').toString().trim();
+  const bucket = (req.query.bucket || 'day').toString().trim().toLowerCase();
+
+  if (!release)
+    return res.status(400).json({ ok: false, error: 'release required' });
+
+  const allowed = new Set(['hour', 'day', 'week']);
+  const unit = allowed.has(bucket) ? bucket : 'day';
+
+  const sql = `
+    SELECT
+      date_trunc('${unit}', snapshot_at) AS t,
+      count(*)::int AS total_scope,
+      count(*) FILTER (WHERE state = 'Done')::int AS done_scope
+    FROM public.tfs_workitems_analytics_snapshots
+    WHERE release = $1
+    GROUP BY 1
+    ORDER BY 1;
+  `;
+
+  try {
+    const r = await pool.query(sql, [release]);
+    res.json({ ok: true, rows: r.rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// scope summary + predictability
+app.get('/api/release-scope-summary', async (req, res) => {
+  const release = (req.query.release || '').toString().trim();
+  if (!release)
+    return res.status(400).json({ ok: false, error: 'release required' });
+
+  const sql = `
+    WITH bounds AS (
+      SELECT min(snapshot_at) AS base_at, max(snapshot_at) AS last_at
+      FROM public.tfs_workitems_analytics_snapshots
+      WHERE release = $1
+    ),
+    base AS (
+      SELECT work_item_id
+      FROM public.tfs_workitems_analytics_snapshots
+      WHERE release = $1 AND snapshot_at = (SELECT base_at FROM bounds)
+    ),
+    last AS (
+      SELECT work_item_id, state
+      FROM public.tfs_workitems_analytics_snapshots
+      WHERE release = $1 AND snapshot_at = (SELECT last_at FROM bounds)
+    ),
+    added AS (
+      SELECT l.work_item_id FROM last l
+      LEFT JOIN base b USING(work_item_id)
+      WHERE b.work_item_id IS NULL
+    ),
+    removed AS (
+      SELECT b.work_item_id FROM base b
+      LEFT JOIN last l USING(work_item_id)
+      WHERE l.work_item_id IS NULL
+    ),
+    delivered AS (
+      SELECT count(*)::int AS delivered
+      FROM last
+      WHERE work_item_id IN (SELECT work_item_id FROM base)
+        AND state = 'Done'
+    )
+    SELECT
+      (SELECT base_at FROM bounds) AS baseline_at,
+      (SELECT last_at FROM bounds) AS latest_at,
+      (SELECT count(*)::int FROM base) AS baseline_scope,
+      (SELECT count(*)::int FROM last) AS current_scope,
+      (SELECT count(*)::int FROM added) AS added_scope,
+      (SELECT count(*)::int FROM removed) AS removed_scope,
+      (SELECT delivered FROM delivered) AS delivered_from_baseline;
+  `;
+
+  try {
+    const r = await pool.query(sql, [release]);
+    const row = r.rows[0] || {};
+    const baseline = row.baseline_scope || 0;
+    const delivered = row.delivered_from_baseline || 0;
+    const predictabilityPct =
+      baseline > 0 ? Math.round((delivered / baseline) * 100) : 0;
+
+    res.json({ ok: true, ...row, predictabilityPct });
+  } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
@@ -188,6 +284,7 @@ function buildUpsert(rows) {
     'open_dep_count',
     'related_link_count',
     'open_related_count',
+    'closed_date',
     'source',
     'synced_at',
   ];
@@ -238,7 +335,7 @@ function buildUpsert(rows) {
         r.openRelatedCount === null || r.openRelatedCount === undefined
           ? null
           : normInt(r.openRelatedCount) ?? 0,
-
+        toDateOrNull(r.closedDate),
         r.source ?? 'tfs-weekly-sync',
         toDateOrNull(r.syncedAtUtc) ?? new Date()
       );
@@ -276,11 +373,71 @@ function buildUpsert(rows) {
       open_dep_count     = EXCLUDED.open_dep_count,
       related_link_count = EXCLUDED.related_link_count,
       open_related_count = EXCLUDED.open_related_count,
+      closed_date        = EXCLUDED.closed_date,
       source             = EXCLUDED.source,
       synced_at          = EXCLUDED.synced_at
   `;
 
   return { text: insertSql, values };
+}
+
+// add a snapshot insert helper
+function buildSnapshotInsert(runId, snapshotAt, rows) {
+  const cols = [
+    'run_id',
+    'snapshot_at',
+    'work_item_id',
+    'release',
+    'type',
+    'state',
+    'severity',
+    'effort',
+    'dep_count',
+    'open_dep_count',
+    'related_link_count',
+    'open_related_count',
+    'closed_date',
+  ];
+
+  const values = [];
+  const valuesSql = rows
+    .map((r, idx) => {
+      const base = idx * cols.length;
+      const p = (i) => `$${base + i + 1}`;
+
+      values.push(
+        runId,
+        snapshotAt,
+
+        normInt(r.workItemId),
+        r.release ?? null,
+        r.type ?? null,
+        r.state ?? null,
+        r.severity ?? null,
+        normNum(r.effort),
+
+        normInt(r.depCount) ?? 0,
+        r.openDepCount === null || r.openDepCount === undefined
+          ? null
+          : normInt(r.openDepCount) ?? 0,
+
+        normInt(r.relatedLinkCount) ?? 0,
+        r.openRelatedCount === null || r.openRelatedCount === undefined
+          ? null
+          : normInt(r.openRelatedCount) ?? 0,
+
+        toDateOrNull(r.closedDate)
+      );
+
+      return `(${cols.map((_, j) => p(j)).join(',')})`;
+    })
+    .join(',');
+
+  const text = `
+    INSERT INTO public.tfs_workitems_analytics_snapshots (${cols.join(',')})
+    VALUES ${valuesSql}
+  `;
+  return { text, values };
 }
 
 // ---------- Ingest ----------
@@ -293,25 +450,41 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
   }
 
   const syncTs = syncedAtUtc ? new Date(syncedAtUtc) : new Date();
+  const src = source ?? 'tfs-weekly-sync';
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
+    // 1) create a run row (this run_id ties all snapshot rows together)
+    const runR = await client.query(
+      `INSERT INTO public.tfs_sync_runs(run_at, source, item_count)
+       VALUES ($1, $2, $3)
+       RETURNING run_id, run_at`,
+      [syncTs, src, rows.length]
+    );
+    const runId = runR.rows[0].run_id;
+    const runAt = runR.rows[0].run_at; // normalized by DB
+
     const chunks = chunkArray(rows, 200);
     for (const ch of chunks) {
-      // attach metadata once here so buildUpsert can use it
       const enriched = ch.map((r) => ({
         ...r,
-        source: source ?? 'tfs-weekly-sync',
-        syncedAtUtc: syncTs.toISOString(),
+        source: src,
+        syncedAtUtc: runAt.toISOString(),
       }));
+
+      // 2) upsert latest
       const q = buildUpsert(enriched);
       await client.query(q.text, q.values);
+
+      // 3) insert snapshots
+      const s = buildSnapshotInsert(runId, runAt, enriched);
+      await client.query(s.text, s.values);
     }
 
     await client.query('COMMIT');
-    res.json({ ok: true, count: rows.length });
+    res.json({ ok: true, count: rows.length, runId, runAt });
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('INGEST ERROR:', e);

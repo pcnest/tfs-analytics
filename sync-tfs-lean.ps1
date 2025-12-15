@@ -282,6 +282,7 @@ foreach ($wi in $items) {
     createdDate        = $fields.'System.CreatedDate'
     changedDate        = $fields.'System.ChangedDate'
     stateChangeDate    = $fields.'Microsoft.VSTS.Common.StateChangeDate'
+    closedDate         = $fields.'Microsoft.VSTS.Common.ClosedDate'
     severity           = $fields.'Microsoft.VSTS.Common.Severity'
     effort             = $effort
     parentId           = $parentId
