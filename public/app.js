@@ -525,6 +525,134 @@ async function loadReleaseInsights(release) {
   }
 }
 
+async function loadReleaseCycle(release) {
+  const el = document.getElementById('release-cycle-body');
+  if (!el) return;
+
+  const rel = String(release || '').trim();
+  if (!rel) {
+    el.textContent = 'Enter a release and click Load.';
+    return;
+  }
+
+  el.textContent = 'Loading...';
+
+  try {
+    const r = await fetch(
+      `/api/release-cycle?release=${encodeURIComponent(rel)}&windowDays=7`
+    );
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+
+    if (!data.asOf) {
+      el.textContent = data.message || 'No data yet.';
+      return;
+    }
+
+    const asOfStr =
+      new Date(data.asOf).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+
+    const c = data.counts || {};
+    const f = data.flow || {};
+
+    const done7 = Number(f.done_events ?? 0);
+    const perDay = (done7 / 7).toFixed(2);
+
+    const rework7 = Number(f.rework_events ?? 0);
+    const reworkItems7 = Number(f.rework_items ?? 0);
+
+    const header = `
+      <div class="muted" style="margin-bottom:8px;">
+        Release <b>${escapeHtml(rel)}</b> — as of <b>${asOfStr}</b>
+      </div>
+    `;
+
+    const cards = `
+      <div class="mini-cards">
+        <div class="mini-card">
+          <div class="mini-k">Dev WIP</div>
+          <div class="mini-v">${Number(c.dev_wip ?? 0)}</div>
+          <div class="mini-sub">In Dev / On-Hold / Shelved / Branch Checkin</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">QA Queue</div>
+          <div class="mini-v">${Number(c.qa_queue ?? 0)}</div>
+          <div class="mini-sub">Resolved (Bug) / Ready for QA (PBI)</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">QA Testing</div>
+          <div class="mini-v">${Number(c.qa_testing ?? 0)}</div>
+          <div class="mini-sub">currently being tested</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">Done (7d)</div>
+          <div class="mini-v">${done7}</div>
+          <div class="mini-sub">avg ${perDay}/day</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">QA bounce (7d)</div>
+          <div class="mini-v">${rework7}</div>
+          <div class="mini-sub">${reworkItems7} item(s) bounced back</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">Blocked (On-Hold)</div>
+          <div class="mini-v">${Number(c.on_hold ?? 0)}</div>
+          <div class="mini-sub">current On-Hold tickets</div>
+        </div>
+      </div>
+    `;
+
+    const mkList = (items) => {
+      if (!items || !items.length) return `<div class="muted">None.</div>`;
+      return `
+        <ul>
+          ${items
+            .map(
+              (x) => `
+            <li>
+              <span class="pill">${x.id}</span>
+              <span class="muted">(${escapeHtml(x.state)} • ${Number(
+                x.age_days ?? 0
+              )}d)</span><br/>
+              ${escapeHtml(x.title || '')}
+            </li>
+          `
+            )
+            .join('')}
+        </ul>
+      `;
+    };
+
+    const top = data.top || {};
+    const lists = `
+      <div class="two-col">
+        <div>
+          <div class="k">Top stuck (Dev WIP)</div>
+          ${mkList(top.dev)}
+        </div>
+        <div>
+          <div class="k">Top stuck (QA Queue)</div>
+          ${mkList(top.qaQueue)}
+        </div>
+        <div>
+          <div class="k">Top stuck (QA Testing)</div>
+          ${mkList(top.qaTesting)}
+        </div>
+      </div>
+    `;
+
+    el.innerHTML = header + cards + lists;
+  } catch (err) {
+    console.error('loadReleaseCycle failed', err);
+    el.textContent = 'Failed to load Dev & QA Cycle.';
+  }
+}
+
 function escapeHtml(v) {
   return String(v ?? '')
     .replaceAll('&', '&amp;')
@@ -622,6 +750,7 @@ qs('btnLoad').addEventListener('click', () => {
   loadReleaseHealth();
   loadReleaseProgress(qs('release')?.value);
   loadReleaseInsights(qs('release')?.value);
+  loadReleaseCycle(qs('release')?.value);
 });
 
 qs('btnExport').addEventListener('click', () => {
@@ -647,4 +776,5 @@ qs('next').addEventListener('click', () => {
 loadReleaseHealth();
 loadReleaseProgress(qs('release')?.value);
 loadReleaseInsights(qs('release')?.value);
+loadReleaseCycle(qs('release')?.value);
 load();

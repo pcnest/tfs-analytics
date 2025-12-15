@@ -113,6 +113,26 @@
       background: #111;
     }
 
+    .two-col {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .two-col>div {
+      flex: 1 1 420px;
+      min-width: 360px;
+    }
+
+    .two-col ul {
+      margin: 6px 0 0 0;
+      padding-left: 18px;
+    }
+
+    .two-col li {
+      margin: 4px 0;
+    }
 
 
     .k {
@@ -274,6 +294,11 @@
       <div class="k">Release Insights</div>
       <div class="v" style="font-size:16px; font-weight:700;">Risks & Flow</div>
       <div id="release-insights-body" style="margin-top:10px;">Enter a release and click Load.</div>
+    </div>
+    <div id="release-cycle" class="card full">
+      <div class="k">Release Insights</div>
+      <div class="v" style="font-size:16px; font-weight:700;">Dev & QA Cycle</div>
+      <div id="release-cycle-body" style="margin-top:10px;">Enter a release and click Load.</div>
     </div>
 
 

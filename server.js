@@ -500,6 +500,172 @@ app.get('/api/release-dependency-risk', async (req, res) => {
   }
 });
 
+// ---------- Dev & QA Cycle (stakeholder-friendly) ----------
+app.get('/api/release-cycle', async (req, res) => {
+  const release = (req.query.release || '').toString().trim();
+  const windowDays = Math.min(
+    Math.max(Number(req.query.windowDays) || 7, 1),
+    60
+  );
+
+  if (!release)
+    return res.status(400).json({ ok: false, error: 'release required' });
+
+  try {
+    // Use latest snapshot time as the “as of” timestamp for flow metrics
+    const asOfR = await pool.query(
+      `SELECT max(snapshot_at) AS as_of
+       FROM public.tfs_workitems_analytics_snapshots
+       WHERE release = $1`,
+      [release]
+    );
+    const asOf = asOfR.rows?.[0]?.as_of || null;
+
+    if (!asOf) {
+      return res.json({
+        ok: true,
+        release,
+        asOf: null,
+        windowDays,
+        message:
+          'No snapshot data yet for this release. Run sync at least once.',
+      });
+    }
+
+    // Current stage counts (based on latest “live” table; should match the last sync)
+    const countsR = await pool.query(
+      `
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE state = 'Done')::int AS done,
+
+        -- Intake / Ready
+        COUNT(*) FILTER (WHERE state IN ('New','Approved','Committed'))::int AS intake,
+
+        -- Dev work (includes On-Hold, Shelved, Branch Checkin)
+        COUNT(*) FILTER (
+          WHERE state IN ('In Development','On-Hold','Shelved','Branch Checkin')
+        )::int AS dev_wip,
+
+        COUNT(*) FILTER (WHERE state = 'On-Hold')::int AS on_hold,
+
+        -- QA queue + testing
+        COUNT(*) FILTER (WHERE state IN ('Resolved','Ready for QA'))::int AS qa_queue,
+        COUNT(*) FILTER (WHERE state = 'QA Testing')::int AS qa_testing,
+
+        -- dependency risk signal (open deps only)
+        COALESCE(SUM(open_dep_count) FILTER (WHERE state <> 'Done'), 0)::int AS open_deps
+      FROM public.tfs_workitems_analytics
+      WHERE release = $1
+      `,
+      [release]
+    );
+
+    // Flow events in the last N days (based on snapshots)
+    const flowR = await pool.query(
+      `
+      WITH hist AS (
+        SELECT
+          work_item_id,
+          type,
+          snapshot_at,
+          state,
+          lag(state) OVER (PARTITION BY work_item_id ORDER BY snapshot_at) AS prev_state
+        FROM public.tfs_workitems_analytics_snapshots
+        WHERE release = $1
+          AND snapshot_at >= $2::timestamptz - ($3::int || ' days')::interval
+      ),
+      done_ev AS (
+        SELECT * FROM hist
+        WHERE state = 'Done' AND (prev_state IS DISTINCT FROM 'Done')
+      ),
+      rework_ev AS (
+        SELECT * FROM hist
+        WHERE prev_state IN ('Resolved','Ready for QA','QA Testing','Done')
+          AND (
+            (type = 'Bug' AND state = 'Re-opened')
+            OR (type <> 'Bug' AND state = 'In Development')
+          )
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM done_ev) AS done_events,
+        (SELECT COUNT(DISTINCT work_item_id)::int FROM done_ev) AS done_items,
+        (SELECT COUNT(*)::int FROM rework_ev) AS rework_events,
+        (SELECT COUNT(DISTINCT work_item_id)::int FROM rework_ev) AS rework_items
+      `,
+      [release, asOf, windowDays]
+    );
+
+    // Top stuck lists (by “days in current state” using state_change_date)
+    const topDevR = await pool.query(
+      `
+      SELECT
+        work_item_id::int AS id,
+        type,
+        state,
+        title,
+        date_part('day', $2::timestamptz - COALESCE(state_change_date, changed_date, created_date))::int AS age_days
+      FROM public.tfs_workitems_analytics
+      WHERE release = $1
+        AND state IN ('In Development','On-Hold','Shelved','Branch Checkin')
+      ORDER BY age_days DESC NULLS LAST
+      LIMIT 5
+      `,
+      [release, asOf]
+    );
+
+    const topQaQueueR = await pool.query(
+      `
+      SELECT
+        work_item_id::int AS id,
+        type,
+        state,
+        title,
+        date_part('day', $2::timestamptz - COALESCE(state_change_date, changed_date, created_date))::int AS age_days
+      FROM public.tfs_workitems_analytics
+      WHERE release = $1
+        AND state IN ('Resolved','Ready for QA')
+      ORDER BY age_days DESC NULLS LAST
+      LIMIT 5
+      `,
+      [release, asOf]
+    );
+
+    const topQaTestingR = await pool.query(
+      `
+      SELECT
+        work_item_id::int AS id,
+        type,
+        state,
+        title,
+        date_part('day', $2::timestamptz - COALESCE(state_change_date, changed_date, created_date))::int AS age_days
+      FROM public.tfs_workitems_analytics
+      WHERE release = $1
+        AND state = 'QA Testing'
+      ORDER BY age_days DESC NULLS LAST
+      LIMIT 5
+      `,
+      [release, asOf]
+    );
+
+    res.json({
+      ok: true,
+      release,
+      asOf,
+      windowDays,
+      counts: countsR.rows?.[0] || {},
+      flow: flowR.rows?.[0] || {},
+      top: {
+        dev: topDevR.rows || [],
+        qaQueue: topQaQueueR.rows || [],
+        qaTesting: topQaTestingR.rows || [],
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // ---------- Static dashboard ----------
 app.use('/', express.static(path.join(__dirname, 'public')));
 
