@@ -118,6 +118,96 @@ async function loadReleaseHealth() {
   }
 }
 
+async function loadReleaseProgress(release) {
+  const el = document.getElementById('release-progress-body');
+  if (!el) return;
+
+  const rel = String(release || '').trim();
+  if (!rel) {
+    el.textContent = 'Enter a release and click Load.';
+    return;
+  }
+
+  el.textContent = 'Loading...';
+
+  // While testing (multiple syncs per day), "hour" is more satisfying.
+  // Switch to "day" after a week of data.
+  const bucket = 'hour';
+
+  try {
+    const [burnR, scopeR] = await Promise.all([
+      fetch(
+        `/api/release-burnup?release=${encodeURIComponent(
+          rel
+        )}&bucket=${bucket}`
+      ),
+      fetch(`/api/release-scope-summary?release=${encodeURIComponent(rel)}`),
+    ]);
+
+    const burn = await burnR.json().catch(() => ({}));
+    const scope = await scopeR.json().catch(() => ({}));
+
+    if (!burnR.ok || !burn.ok)
+      throw new Error(burn.error || `burnup HTTP ${burnR.status}`);
+    if (!scopeR.ok || !scope.ok)
+      throw new Error(scope.error || `scope HTTP ${scopeR.status}`);
+
+    const rows = burn.rows || [];
+
+    const head = `
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div><span class="muted">Baseline</span>: <b>${
+          scope.baseline_scope ?? 0
+        }</b></div>
+        <div><span class="muted">Current</span>: <b>${
+          scope.current_scope ?? 0
+        }</b></div>
+        <div><span class="muted">Added</span>: <b>${
+          scope.added_scope ?? 0
+        }</b></div>
+        <div><span class="muted">Removed</span>: <b>${
+          scope.removed_scope ?? 0
+        }</b></div>
+        <div><span class="muted">Delivered (baseline)</span>: <b>${
+          scope.delivered_from_baseline ?? 0
+        }</b></div>
+        <div><span class="muted">Predictability</span>: <b>${
+          scope.predictabilityPct ?? 0
+        }%</b></div>
+      </div>
+    `;
+
+    const table = rows.length
+      ? `
+        <table>
+          <thead><tr><th>Time</th><th>Total</th><th>Done</th></tr></thead>
+          <tbody>
+            ${rows
+              .map(
+                (x) => `
+              <tr>
+                <td>${new Date(x.t)
+                  .toISOString()
+                  .replace('T', ' ')
+                  .slice(0, 16)}</td>
+                <td>${x.total_scope}</td>
+                <td>${x.done_scope}</td>
+              </tr>
+            `
+              )
+              .join('')}
+          </tbody>
+        </table>
+      `
+      : `<div class="muted" style="margin-top:8px;">No burnup data yet. Run sync at least twice.</div>`;
+
+    el.innerHTML = head + table;
+  } catch (err) {
+    console.error('loadReleaseProgress failed', err);
+    el.textContent = 'Failed to load Release Progress.';
+  }
+}
+
 function escapeHtml(v) {
   return String(v ?? '')
     .replaceAll('&', '&amp;')
@@ -213,6 +303,7 @@ qs('btnLoad').addEventListener('click', () => {
   offset = 0;
   load();
   loadReleaseHealth();
+  loadReleaseProgress(qs('release')?.value); // <--- ADD
 });
 
 qs('btnExport').addEventListener('click', () => {
@@ -236,4 +327,5 @@ qs('next').addEventListener('click', () => {
 
 // initial load
 loadReleaseHealth();
+loadReleaseProgress(qs('release')?.value);
 load();
