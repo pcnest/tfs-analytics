@@ -589,8 +589,8 @@ async function loadReleaseCycle(release) {
     const done7 = Number(f.done_items ?? f.done_events ?? 0);
     const perDay = (done7 / 7).toFixed(2);
 
-    const rework7 = Number(f.rework_events ?? 0);
     const reworkItems7 = Number(f.rework_items ?? 0);
+    const reworkEvents7 = Number(f.rework_events ?? 0);
 
     const header = `
       <div class="muted" style="margin-bottom:8px;">
@@ -625,10 +625,11 @@ async function loadReleaseCycle(release) {
         </div>
 
         <div class="mini-card">
-          <div class="mini-k">QA bounce (7d)</div>
-          <div class="mini-v">${rework7}</div>
-          <div class="mini-sub">${reworkItems7} item(s) bounced back</div>
-        </div>
+  <div class="mini-k">QA bounce (7d)</div>
+  <div class="mini-v">${reworkItems7}</div>
+  <div class="mini-sub">${reworkEvents7} bounce event(s)</div>
+</div>
+
 
         <div class="mini-card">
           <div class="mini-k">Blocked (On-Hold)</div>

@@ -544,27 +544,25 @@ app.get('/api/release-cycle', async (req, res) => {
     const countsR = await pool.query(
       `
       SELECT
-        COUNT(*)::int AS total,
-        COUNT(*) FILTER (WHERE state = 'Done')::int AS done,
+  COUNT(*) FILTER (WHERE lower(state) <> 'removed')::int AS total,
+  COUNT(*) FILTER (WHERE state = 'Done')::int AS done,
 
-        -- Intake / Ready
-        COUNT(*) FILTER (WHERE state IN ('New','Approved','Committed'))::int AS intake,
+  COUNT(*) FILTER (WHERE state IN ('New','Approved','Committed'))::int AS intake,
 
-        -- Dev work (includes On-Hold, Shelved, Branch Checkin)
-        COUNT(*) FILTER (
-          WHERE state IN ('In Development','On-Hold','Shelved','Branch Checkin')
-        )::int AS dev_wip,
+  COUNT(*) FILTER (
+    WHERE state IN ('In Development','On-Hold','Shelved','Branch Checkin')
+      AND lower(state) <> 'removed'
+  )::int AS dev_wip,
 
-        COUNT(*) FILTER (WHERE state = 'On-Hold')::int AS on_hold,
+  COUNT(*) FILTER (WHERE state = 'On-Hold' AND lower(state) <> 'removed')::int AS on_hold,
 
-        -- QA queue + testing
-        COUNT(*) FILTER (WHERE state IN ('Resolved','Ready for QA'))::int AS qa_queue,
-        COUNT(*) FILTER (WHERE state = 'QA Testing')::int AS qa_testing,
+  COUNT(*) FILTER (WHERE state IN ('Resolved','Ready for QA') AND lower(state) <> 'removed')::int AS qa_queue,
+  COUNT(*) FILTER (WHERE state = 'QA Testing' AND lower(state) <> 'removed')::int AS qa_testing,
 
-        -- dependency risk signal (open deps only)
-        COALESCE(SUM(open_dep_count) FILTER (WHERE state <> 'Done'), 0)::int AS open_deps
-      FROM public.tfs_workitems_analytics
-      WHERE release = $1
+  COALESCE(SUM(open_dep_count) FILTER (WHERE lower(state) NOT IN ('done','removed')), 0)::int AS open_deps
+FROM public.tfs_workitems_analytics
+WHERE release = $1;
+
       `,
       [release]
     );
