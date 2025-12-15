@@ -207,6 +207,299 @@ app.get('/api/release-scope-summary', async (req, res) => {
   }
 });
 
+// ---------- Release Insights (stakeholder widgets) ----------
+
+// 1) Flow aging / staleness (what’s stuck?)
+app.get('/api/release-aging', async (req, res) => {
+  const release = (req.query.release || '').toString().trim();
+  const staleDaysRaw = Number(req.query.staleDays);
+  const staleDays = Number.isFinite(staleDaysRaw)
+    ? Math.min(Math.max(staleDaysRaw, 1), 90)
+    : 7;
+
+  if (!release)
+    return res.status(400).json({ ok: false, error: 'release required' });
+
+  try {
+    // Use latest synced_at as "as of" to keep numbers consistent with your last sync
+    const summarySql = `
+      WITH asof AS (
+        SELECT COALESCE(MAX(synced_at), now()) AS as_of
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+      ),
+      base AS (
+        SELECT
+          work_item_id,
+          title,
+          state,
+          assigned_to,
+          COALESCE(state_change_date, changed_date, created_date) AS state_since,
+          (SELECT as_of FROM asof) AS as_of
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+      ),
+      calc AS (
+        SELECT
+          *,
+          GREATEST(
+            0,
+            FLOOR(EXTRACT(EPOCH FROM (as_of - state_since)) / 86400)
+          )::int AS age_days
+        FROM base
+        WHERE state_since IS NOT NULL
+      )
+      SELECT
+        (SELECT as_of FROM asof) AS as_of,
+        COUNT(*) FILTER (WHERE lower(state) NOT IN ('done','removed'))::int AS active_count,
+        MAX(age_days) FILTER (WHERE lower(state) NOT IN ('done','removed'))::int AS oldest_active_days,
+        COUNT(*) FILTER (WHERE lower(state) NOT IN ('done','removed') AND age_days >= $2)::int AS stale_active_count
+      FROM calc;
+    `;
+
+    const byStateSql = `
+      WITH asof AS (
+        SELECT COALESCE(MAX(synced_at), now()) AS as_of
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+      ),
+      calc AS (
+        SELECT
+          state,
+          COALESCE(state_change_date, changed_date, created_date) AS state_since,
+          (SELECT as_of FROM asof) AS as_of,
+          work_item_id,
+          title,
+          assigned_to
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+      ),
+      aged AS (
+        SELECT
+          state,
+          work_item_id,
+          title,
+          assigned_to,
+          GREATEST(
+            0,
+            FLOOR(EXTRACT(EPOCH FROM (as_of - state_since)) / 86400)
+          )::int AS age_days
+        FROM calc
+        WHERE state_since IS NOT NULL
+      )
+      SELECT
+        state,
+        COUNT(*)::int AS count,
+        COUNT(*) FILTER (WHERE age_days >= $2)::int AS stale_count,
+        MAX(age_days)::int AS oldest_days
+      FROM aged
+      WHERE lower(state) NOT IN ('done','removed')
+      GROUP BY state
+      ORDER BY stale_count DESC, count DESC, state ASC;
+    `;
+
+    const topOldestSql = `
+      WITH asof AS (
+        SELECT COALESCE(MAX(synced_at), now()) AS as_of
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+      ),
+      aged AS (
+        SELECT
+          work_item_id,
+          title,
+          state,
+          assigned_to,
+          COALESCE(state_change_date, changed_date, created_date) AS state_since,
+          (SELECT as_of FROM asof) AS as_of
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+      )
+      SELECT
+        work_item_id,
+        title,
+        state,
+        assigned_to,
+        GREATEST(
+          0,
+          FLOOR(EXTRACT(EPOCH FROM (as_of - state_since)) / 86400)
+        )::int AS age_days,
+        state_since
+      FROM aged
+      WHERE
+        state_since IS NOT NULL
+        AND lower(state) NOT IN ('done','removed')
+      ORDER BY age_days DESC, state_since ASC
+      LIMIT 5;
+    `;
+
+    const [sumR, byR, topR] = await Promise.all([
+      pool.query(summarySql, [release, staleDays]),
+      pool.query(byStateSql, [release, staleDays]),
+      pool.query(topOldestSql, [release]),
+    ]);
+
+    const row = sumR.rows[0] || {};
+    res.json({
+      ok: true,
+      release,
+      staleDays,
+      asOf: row.as_of,
+      activeCount: row.active_count ?? 0,
+      staleActiveCount: row.stale_active_count ?? 0,
+      oldestActiveDays: row.oldest_active_days ?? 0,
+      byState: byR.rows || [],
+      topOldest: topR.rows || [],
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// 2) Throughput + simple ETA (how fast?)
+app.get('/api/release-throughput', async (req, res) => {
+  const release = (req.query.release || '').toString().trim();
+  if (!release)
+    return res.status(400).json({ ok: false, error: 'release required' });
+
+  try {
+    const sql = `
+      WITH asof AS (
+        SELECT COALESCE(MAX(synced_at), now()) AS as_of
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+      ),
+      done AS (
+        SELECT
+          COALESCE(closed_date, state_change_date) AS done_at
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+          AND lower(state) = 'done'
+          AND COALESCE(closed_date, state_change_date) IS NOT NULL
+      ),
+      remaining AS (
+        SELECT COUNT(*)::int AS remaining
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+          AND lower(state) NOT IN ('done','removed')
+      )
+      SELECT
+        (SELECT as_of FROM asof) AS as_of,
+        COUNT(*) FILTER (WHERE done_at >= (SELECT as_of FROM asof) - interval '7 days')::int  AS done_7d,
+        COUNT(*) FILTER (WHERE done_at >= (SELECT as_of FROM asof) - interval '14 days')::int AS done_14d,
+        MAX(done_at) AS last_done_at,
+        (SELECT remaining FROM remaining) AS remaining
+      FROM done;
+    `;
+
+    const r = await pool.query(sql, [release]);
+    const row = r.rows[0] || {};
+
+    const done7 = Number(row.done_7d || 0);
+    const avgPerDay7 = done7 / 7;
+    const remaining = Number(row.remaining || 0);
+
+    const etaDays = avgPerDay7 > 0 ? Math.ceil(remaining / avgPerDay7) : null;
+
+    const asOf = row.as_of ? new Date(row.as_of) : null;
+    const etaDate =
+      asOf && etaDays !== null
+        ? new Date(asOf.getTime() + etaDays * 86400 * 1000).toISOString()
+        : null;
+
+    res.json({
+      ok: true,
+      release,
+      asOf: row.as_of,
+      lastDoneAt: row.last_done_at,
+      done7d: done7,
+      done14d: Number(row.done_14d || 0),
+      avgDonePerDay7d: Number.isFinite(avgPerDay7)
+        ? Number(avgPerDay7.toFixed(2))
+        : 0,
+      remaining,
+      etaDays,
+      etaDate,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// 3) Dependency risk (what’s blocked?)
+app.get('/api/release-dependency-risk', async (req, res) => {
+  const release = (req.query.release || '').toString().trim();
+  if (!release)
+    return res.status(400).json({ ok: false, error: 'release required' });
+
+  try {
+    const aggSql = `
+      WITH asof AS (
+        SELECT COALESCE(MAX(synced_at), now()) AS as_of
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+      ),
+      active AS (
+        SELECT
+          work_item_id,
+          title,
+          state,
+          assigned_to,
+          COALESCE(open_dep_count, 0)::int AS open_dep_count,
+          COALESCE(dep_count, 0)::int AS dep_count
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+          AND lower(state) NOT IN ('done','removed')
+      )
+      SELECT
+        (SELECT as_of FROM asof) AS as_of,
+        COUNT(*)::int AS active_count,
+        COUNT(*) FILTER (WHERE open_dep_count > 0)::int AS blocked_count,
+        COALESCE(SUM(open_dep_count),0)::int AS open_dep_total
+      FROM active;
+    `;
+
+    const topSql = `
+      SELECT
+        work_item_id,
+        title,
+        state,
+        assigned_to,
+        COALESCE(open_dep_count, 0)::int AS open_dep_count,
+        COALESCE(dep_count, 0)::int AS dep_count
+      FROM public.tfs_workitems_analytics
+      WHERE release = $1
+        AND lower(state) NOT IN ('done','removed')
+        AND COALESCE(open_dep_count,0) > 0
+      ORDER BY COALESCE(open_dep_count,0) DESC, work_item_id DESC
+      LIMIT 5;
+    `;
+
+    const [aggR, topR] = await Promise.all([
+      pool.query(aggSql, [release]),
+      pool.query(topSql, [release]),
+    ]);
+
+    const row = aggR.rows[0] || {};
+    const active = Number(row.active_count || 0);
+    const blocked = Number(row.blocked_count || 0);
+    const blockedPct = active > 0 ? Math.round((blocked / active) * 100) : 0;
+
+    res.json({
+      ok: true,
+      release,
+      asOf: row.as_of,
+      activeCount: active,
+      blockedCount: blocked,
+      blockedPct,
+      openDepTotal: Number(row.open_dep_total || 0),
+      topBlocked: topR.rows || [],
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // ---------- Static dashboard ----------
 app.use('/', express.static(path.join(__dirname, 'public')));
 

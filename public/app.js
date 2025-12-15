@@ -386,6 +386,145 @@ async function loadReleaseProgress(release) {
   }
 }
 
+async function loadReleaseInsights(release) {
+  const el = document.getElementById('release-insights-body');
+  if (!el) return;
+
+  const rel = String(release || '').trim();
+  if (!rel) {
+    el.textContent = 'Enter a release and click Load.';
+    return;
+  }
+
+  el.textContent = 'Loading...';
+
+  try {
+    const qsRel = `release=${encodeURIComponent(rel)}`;
+
+    const [agingR, thrR, depR] = await Promise.all([
+      fetch(`/api/release-aging?${qsRel}&staleDays=7`),
+      fetch(`/api/release-throughput?${qsRel}`),
+      fetch(`/api/release-dependency-risk?${qsRel}`),
+    ]);
+
+    const aging = await agingR.json().catch(() => ({}));
+    const thr = await thrR.json().catch(() => ({}));
+    const dep = await depR.json().catch(() => ({}));
+
+    if (!agingR.ok || !aging.ok) throw new Error(aging.error || 'aging failed');
+    if (!thrR.ok || !thr.ok) throw new Error(thr.error || 'throughput failed');
+    if (!depR.ok || !dep.ok) throw new Error(dep.error || 'dependency failed');
+
+    const asOf = aging.asOf || thr.asOf || dep.asOf || null;
+    const asOfStr = asOf
+      ? new Date(asOf).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+      : '—';
+
+    const etaText =
+      thr.etaDays === null
+        ? '—'
+        : `${thr.etaDays}d (${String(thr.etaDate || '').slice(0, 10)})`;
+
+    const cards = `
+      <div class="muted" style="margin-bottom:8px;">
+        Release <b>${escapeHtml(rel)}</b> — as of <b>${escapeHtml(asOfStr)}</b>
+      </div>
+
+      <div class="mini-cards">
+        <div class="mini-card">
+          <div class="mini-k">Stale items</div>
+          <div class="mini-v">${aging.staleActiveCount ?? 0}</div>
+          <div class="mini-sub">&ge; ${aging.staleDays ?? 7} days in state</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">Oldest WIP</div>
+          <div class="mini-v">${aging.oldestActiveDays ?? 0}d</div>
+          <div class="mini-sub">in current state</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">Done (7d)</div>
+          <div class="mini-v">${thr.done7d ?? 0}</div>
+          <div class="mini-sub">avg ${thr.avgDonePerDay7d ?? 0}/day</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">ETA (rough)</div>
+          <div class="mini-v">${escapeHtml(etaText)}</div>
+          <div class="mini-sub">${thr.remaining ?? 0} remaining</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">Blocked</div>
+          <div class="mini-v">${dep.blockedPct ?? 0}%</div>
+          <div class="mini-sub">${dep.blockedCount ?? 0} / ${
+      dep.activeCount ?? 0
+    } active</div>
+        </div>
+
+        <div class="mini-card">
+          <div class="mini-k">Open deps</div>
+          <div class="mini-v">${dep.openDepTotal ?? 0}</div>
+          <div class="mini-sub">sum of open dep links</div>
+        </div>
+      </div>
+    `;
+
+    const topOldest = (aging.topOldest || [])
+      .map(
+        (x) => `
+        <li style="margin:4px 0;">
+          <span class="pill">${x.work_item_id}</span>
+          <span class="muted">(${escapeHtml(x.state)} • ${x.age_days}d)</span>
+          <div style="margin-top:2px;">${escapeHtml(x.title || '')}</div>
+        </li>
+      `
+      )
+      .join('');
+
+    const topBlocked = (dep.topBlocked || [])
+      .map(
+        (x) => `
+        <li style="margin:4px 0;">
+          <span class="pill">${x.work_item_id}</span>
+          <span class="muted">(${escapeHtml(x.state)} • open deps: ${
+          x.open_dep_count
+        })</span>
+          <div style="margin-top:2px;">${escapeHtml(x.title || '')}</div>
+        </li>
+      `
+      )
+      .join('');
+
+    const lists = `
+      <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:12px;">
+        <div style="flex:1 1 320px;">
+          <div class="muted" style="font-size:12px; margin-bottom:6px;">Top stuck (oldest active)</div>
+          <ul style="margin:0; padding-left:16px;">
+            ${
+              topOldest ||
+              '<li class="muted">No active items with state dates.</li>'
+            }
+          </ul>
+        </div>
+
+        <div style="flex:1 1 320px;">
+          <div class="muted" style="font-size:12px; margin-bottom:6px;">Top blocked</div>
+          <ul style="margin:0; padding-left:16px;">
+            ${topBlocked || '<li class="muted">No blocked items.</li>'}
+          </ul>
+        </div>
+      </div>
+    `;
+
+    el.innerHTML = cards + lists;
+  } catch (err) {
+    console.error('loadReleaseInsights failed', err);
+    el.textContent = 'Failed to load Release Insights.';
+  }
+}
+
 function escapeHtml(v) {
   return String(v ?? '')
     .replaceAll('&', '&amp;')
@@ -481,7 +620,8 @@ qs('btnLoad').addEventListener('click', () => {
   offset = 0;
   load();
   loadReleaseHealth();
-  loadReleaseProgress(qs('release')?.value); // <--- ADD
+  loadReleaseProgress(qs('release')?.value);
+  loadReleaseInsights(qs('release')?.value);
 });
 
 qs('btnExport').addEventListener('click', () => {
@@ -506,4 +646,5 @@ qs('next').addEventListener('click', () => {
 // initial load
 loadReleaseHealth();
 loadReleaseProgress(qs('release')?.value);
+loadReleaseInsights(qs('release')?.value);
 load();
