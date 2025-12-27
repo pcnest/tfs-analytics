@@ -25,6 +25,7 @@ param(
   [int]      $ChunkSize = 150,
   [switch]   $UseServerTime,
   [int]      $RecentChangedDays = 7,
+  [int]      $DebugWorkItemId = 0,
 
   # Open counts are computed only if source ticket state NOT in this list:
   [string[]] $SkipOpenCountStates = @("Done", "Removed"),
@@ -225,6 +226,9 @@ foreach ($wi in $items) {
     if ($null -eq $changedDate) { continue }
     $changedUtc = ([datetime]$changedDate).ToUniversalTime()
     if ($changedUtc -lt $recentCutoff) { continue }
+  }
+  if ($DebugWorkItemId -gt 0 -and [int]$wi.id -eq $DebugWorkItemId) {
+    Write-Host "[DEBUG] Include workItemId=$($wi.id) release='$release' tags='$tags' changedDate='$($fields.'System.ChangedDate')'"
   }
 
   $assignedToRaw = $fields.'System.AssignedTo'
