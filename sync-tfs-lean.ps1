@@ -21,8 +21,9 @@ param(
   [string]   $Collection = "SupplyPro.Applications",
   [string]   $Project = "SupplyPro.Core",
   [string]   $ApiVersion = "2.0",
-  [string[]] $ReleaseTargets = @("80.1.6", "4.3.26", "18.4", "5.0.5"),
+  [string[]] $ReleaseTargets = @("80.1.6", "4.3.26", "18.4", "5.0.5", "80.1.5"),
   [int]      $ChunkSize = 150,
+  [switch]   $UseServerTime,
 
   # Open counts are computed only if source ticket state NOT in this list:
   [string[]] $SkipOpenCountStates = @("Done", "Removed"),
@@ -142,11 +143,14 @@ function Get-TfsStatesOnly {
 
 function Send-Ingest {
   param([object[]]$Rows)
-  $payload = @{
-    source      = "tfs-weekly-sync"
-    syncedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
-    rows        = $Rows
-  } | ConvertTo-Json -Depth 6
+  $payloadObj = @{
+    source = "tfs-weekly-sync"
+    rows   = $Rows
+  }
+  if (-not $UseServerTime) {
+    $payloadObj.syncedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
+  }
+  $payload = $payloadObj | ConvertTo-Json -Depth 6
 
   $headers = @{
     "Content-Type" = "application/json"
