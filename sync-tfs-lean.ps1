@@ -24,6 +24,7 @@ param(
   [string[]] $ReleaseTargets = @("80.1.6", "4.3.26", "18.4", "5.0.5", "80.1.5"),
   [int]      $ChunkSize = 150,
   [switch]   $UseServerTime,
+  [int]      $RecentChangedDays = 7,
 
   # Open counts are computed only if source ticket state NOT in this list:
   [string[]] $SkipOpenCountStates = @("Done", "Removed"),
@@ -206,6 +207,10 @@ Write-Host "Fetched $($items.Count) work items"
 
 # ---------- Normalize + relation counts ----------
 $modelItems = @()
+$recentCutoff = $null
+if ($RecentChangedDays -gt 0) {
+  $recentCutoff = (Get-Date).ToUniversalTime().AddDays(-1 * $RecentChangedDays)
+}
 
 foreach ($wi in $items) {
   $fields = $wi.fields
@@ -213,8 +218,14 @@ foreach ($wi in $items) {
   $tags = $fields.'System.Tags'
   $release = Find-ReleaseInTags -Tags $tags -Targets $ReleaseTargets
 
-  # enforce release filter like your M query
-  if ($ReleaseTargets.Count -gt 0 -and -not $ReleaseTargets.Contains($release)) { continue }
+  # enforce release filter like your M query, but keep recently changed items too
+  if ($ReleaseTargets.Count -gt 0 -and -not $ReleaseTargets.Contains($release)) {
+    if ($null -eq $recentCutoff) { continue }
+    $changedDate = $fields.'System.ChangedDate'
+    if ($null -eq $changedDate) { continue }
+    $changedUtc = ([datetime]$changedDate).ToUniversalTime()
+    if ($changedUtc -lt $recentCutoff) { continue }
+  }
 
   $assignedToRaw = $fields.'System.AssignedTo'
   $changedByRaw = $fields.'System.ChangedBy'
