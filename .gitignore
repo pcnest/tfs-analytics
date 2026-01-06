@@ -1,0 +1,16 @@
+# Environment variables
+.env
+
+# Node modules
+node_modules/
+
+# Debug and test files
+payload-debug.json
+sync-debug.log
+sync-output.txt
+test-batch-1.json
+test-result.txt
+
+# OS files
+.DS_Store
+Thumbs.db

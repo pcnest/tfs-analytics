@@ -144,7 +144,8 @@ function Get-TfsStatesOnly {
       continue
     }
 
-    foreach ($wi in ($resp.value ?? @())) {
+    $wiArray = if ($resp.value) { $resp.value } else { @() }
+    foreach ($wi in $wiArray) {
       $map[[string]$wi.id] = $wi.fields.'System.State'
     }
 
@@ -161,7 +162,11 @@ function Send-Ingest {
   if (-not $UseServerTime) {
     $payloadObj.syncedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
   }
-  $payload = $payloadObj | ConvertTo-Json -Depth 6
+  # FIX: Use -Depth 10 and ensure proper JSON escaping
+  $payload = $payloadObj | ConvertTo-Json -Depth 10 -Compress
+  
+  # DEBUG: Save full payload to file for inspection
+  $payload | Out-File "payload-debug.json" -Encoding UTF8
 
   $headers = @{
     "Content-Type" = "application/json"
@@ -176,11 +181,15 @@ function Send-Ingest {
     }
     catch {
       $attempt++
+      $errorDetails = ""
+      if ($_.ErrorDetails.Message) {
+        $errorDetails = " Details: $($_.ErrorDetails.Message)"
+      }
       if ($attempt -ge $MaxRetries) {
-        Write-Error "Ingest failed after $MaxRetries attempts: $($_.Exception.Message)"
+        Write-Error "Ingest failed after $MaxRetries attempts: $($_.Exception.Message)$errorDetails"
         throw
       }
-      Write-Warning "Ingest failed (attempt $attempt/$MaxRetries): $($_.Exception.Message). Retrying in 5s..."
+      Write-Warning "Ingest failed (attempt $attempt/$MaxRetries): $($_.Exception.Message)$errorDetails. Retrying in 5s..."
       Start-Sleep -Seconds 5
     }
   }
@@ -316,26 +325,81 @@ foreach ($wi in $items) {
     }
   }
 
+  # FIX: Convert dates to UTC strings before building object (avoid inline if-else in hashtable)
+  $createdDateUtc = $null
+  if ($fields.'System.CreatedDate') {
+    $createdDateUtc = ([datetime]$fields.'System.CreatedDate').ToUniversalTime().ToString('o')
+  }
+  
+  $changedDateUtc = $null
+  if ($fields.'System.ChangedDate') {
+    $changedDateUtc = ([datetime]$fields.'System.ChangedDate').ToUniversalTime().ToString('o')
+  }
+  
+  $stateChangeDateUtc = $null
+  if ($fields.'Microsoft.VSTS.Common.StateChangeDate') {
+    $stateChangeDateUtc = ([datetime]$fields.'Microsoft.VSTS.Common.StateChangeDate').ToUniversalTime().ToString('o')
+  }
+  
+  $closedDateUtc = $null
+  if ($fields.'Microsoft.VSTS.Common.ClosedDate') {
+    $closedDateUtc = ([datetime]$fields.'Microsoft.VSTS.Common.ClosedDate').ToUniversalTime().ToString('o')
+  }
+
+  # FIX: Compute open counts outside hashtable to avoid inline if-else
+  $openDepCountVal = if ($computeOpenCounts) { 0 } else { $null }
+  $openRelatedCountVal = if ($computeOpenCounts) { 0 } else { $null }
+
+  # FIX: Sanitize quotes in all text fields to prevent JSON serialization issues
+  # PowerShell's ConvertTo-Json has a bug where it doesn't escape quotes in certain contexts
+  # Solution: Replace both regular AND Unicode curly quotes with single quotes
+  $titleRaw = $fields.'System.Title'
+  if ($titleRaw) {
+    # Replace regular ASCII quotes: " (U+0022)
+    $titleSafe = $titleRaw -replace '"', "'"
+    # Replace Unicode curly quotes: " (U+201C) and " (U+201D)
+    $titleSafe = $titleSafe -replace '[\u201C\u201D]', "'"
+  }
+  else {
+    $titleSafe = $null
+  }
+  
+  $reasonRaw = $fields.'System.Reason'
+  if ($reasonRaw) {
+    $reasonSafe = $reasonRaw -replace '"', "'" -replace '[\u201C\u201D]', "'"
+  }
+  else {
+    $reasonSafe = $null
+  }
+  $assignedToName = Get-Name -v $assignedToRaw
+  $assignedToSafe = if ($assignedToName) { $assignedToName -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
+  $createdByName = Get-Name -v $createdByRaw
+  $createdBySafe = if ($createdByName) { $createdByName -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
+  $changedByName = Get-Name -v $changedByRaw
+  $changedBySafe = if ($changedByName) { $changedByName -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
+  $tagsSafe = if ($tags) { $tags -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
+  $areaPathSafe = if ($fields.'System.AreaPath') { $fields.'System.AreaPath' -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
+  $iterationPathSafe = if ($fields.'System.IterationPath') { $fields.'System.IterationPath' -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
+
   $obj = [PSCustomObject]@{
     workItemId         = [int]$wi.id
     type               = $fields.'System.WorkItemType'
-    title              = $fields.'System.Title'
+    title              = $titleSafe
     state              = $state
-    reason             = $fields.'System.Reason'
-    assignedTo         = Get-Name -v $assignedToRaw
+    reason             = $reasonSafe
+    assignedTo         = $assignedToSafe
     assignedToUPN      = Get-UPN  -v $assignedToRaw
     project            = $fields.'System.TeamProject'
-    areaPath           = $fields.'System.AreaPath'
-    iterationPath      = $fields.'System.IterationPath'
-    tags               = $tags
+    areaPath           = $areaPathSafe
+    iterationPath      = $iterationPathSafe
+    tags               = $tagsSafe
     release            = $release
-    createdBy          = Get-Name -v $createdByRaw
-    changedBy          = Get-Name -v $changedByRaw
-    # FIX: Ensure dates are in UTC format (TFS API should return UTC but we normalize to be safe)
-    createdDate        = $fields.'System.CreatedDate' ? ([datetime]$fields.'System.CreatedDate').ToUniversalTime().ToString('o') : $null
-    changedDate        = $fields.'System.ChangedDate' ? ([datetime]$fields.'System.ChangedDate').ToUniversalTime().ToString('o') : $null
-    stateChangeDate    = $fields.'Microsoft.VSTS.Common.StateChangeDate' ? ([datetime]$fields.'Microsoft.VSTS.Common.StateChangeDate').ToUniversalTime().ToString('o') : $null
-    closedDate         = $fields.'Microsoft.VSTS.Common.ClosedDate' ? ([datetime]$fields.'Microsoft.VSTS.Common.ClosedDate').ToUniversalTime().ToString('o') : $null
+    createdBy          = $createdBySafe
+    changedBy          = $changedBySafe
+    createdDate        = $createdDateUtc
+    changedDate        = $changedDateUtc
+    stateChangeDate    = $stateChangeDateUtc
+    closedDate         = $closedDateUtc
     severity           = $fields.'Microsoft.VSTS.Common.Severity'
     effort             = $effort
     parentId           = $parentId
@@ -343,9 +407,9 @@ foreach ($wi in $items) {
     feature            = $null
 
     depCount           = $depCount
-    openDepCount       = $computeOpenCounts ? 0 : $null
+    openDepCount       = $openDepCountVal
     relatedLinkCount   = $relatedCount
-    openRelatedCount   = $computeOpenCounts ? 0 : $null
+    openRelatedCount   = $openRelatedCountVal
 
     _computeOpenCounts = $computeOpenCounts
     _depIds            = $depIds
@@ -424,7 +488,12 @@ if ($featureIds.Count -gt 0) {
   $featureLookup = @{}
   foreach ($f in $features) {
     $fid = [int]$f.id
-    $featureLookup[$fid] = $f.fields.'System.Title'
+    # Sanitize both regular and Unicode curly quotes in feature titles
+    $featureTitle = $f.fields.'System.Title'
+    if ($featureTitle) { 
+      $featureTitle = $featureTitle -replace '"', "'" -replace '[\u201C\u201D]', "'" 
+    }
+    $featureLookup[$fid] = $featureTitle
   }
   foreach ($mi in $modelItems) {
     if ($mi.featureId -and $featureLookup.ContainsKey($mi.featureId)) { $mi.feature = $featureLookup[$mi.featureId] }
@@ -494,6 +563,37 @@ foreach ($mi in $modelItems) {
   $mi.PSObject.Properties.Remove("_relIds") | Out-Null
 }
 
-Write-Host "Posting $($modelItems.Count) rows to ingest endpoint..."
-$resp = Send-Ingest -Rows $modelItems
-Write-Host "Done. Server response:" ($resp | ConvertTo-Json -Depth 4)
+# FIX: Send in batches to avoid payload size issues with Render infrastructure
+# Use 100 rows per batch with 12-second delay to respect 5 req/min rate limit
+$batchSize = 100
+$totalRows = $modelItems.Count
+$totalInserted = 0
+$totalUpdated = 0
+$totalQuarantined = 0
+$totalDeleted = 0
+
+Write-Host "Posting $totalRows rows in batches of $batchSize..."
+for ($i = 0; $i -lt $totalRows; $i += $batchSize) {
+  $end = [Math]::Min($i + $batchSize, $totalRows)
+  $batch = $modelItems[$i..($end - 1)]
+  $batchNum = [Math]::Floor($i / $batchSize) + 1
+  $totalBatches = [Math]::Ceiling($totalRows / $batchSize)
+  
+  Write-Host "  Sending batch $batchNum/$totalBatches (rows $($i+1)-$end)..."
+  $resp = Send-Ingest -Rows $batch
+  
+  if ($resp.metrics) {
+    $totalInserted += $resp.metrics.inserted
+    $totalUpdated += $resp.metrics.updated
+    $totalQuarantined += $resp.metrics.quarantined
+    $totalDeleted += $resp.metrics.deleted
+    Write-Host "    OK: inserted=$($resp.metrics.inserted), updated=$($resp.metrics.updated), quarantined=$($resp.metrics.quarantined), deleted=$($resp.metrics.deleted)"
+  }
+  
+  # Rate limit: Server allows 5 requests per minute, so wait 12 seconds between batches
+  if ($batchNum -lt $totalBatches) {
+    Start-Sleep -Seconds 12
+  }
+}
+
+Write-Host "`nSync complete! Total: inserted=$totalInserted, updated=$totalUpdated, quarantined=$totalQuarantined, deleted=$totalDeleted"
