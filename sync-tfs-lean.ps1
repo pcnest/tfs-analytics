@@ -366,11 +366,15 @@ if ($parentIds.Count -gt 0) {
   Write-Host "Fetching parents: $($parentIds.Count)"
   
   # FIX: Ensure all parents are in the initial items list to prevent orphaned refs
-  $allIds = [System.Collections.Generic.HashSet[int]]::new($ids)
+  $allIds = New-Object 'System.Collections.Generic.HashSet[int]'
+  foreach ($existingId in $ids) {
+    [void]$allIds.Add($existingId)
+  }
+  
   $missingParentIds = @()
-  foreach ($pId in $parentIds) {
-    if (-not $allIds.Contains($pId)) {
-      $missingParentIds += $pId
+  foreach ($parentId in $parentIds) {
+    if (-not $allIds.Contains($parentId)) {
+      $missingParentIds += $parentId
     }
   }
   

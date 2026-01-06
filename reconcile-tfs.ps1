@@ -89,8 +89,23 @@ $tfsItems = (Invoke-RestMethod -Method Get -Uri $url -Headers $commonHeaders).va
 
 # ---------- Fetch same items from Render DB ----------
 Write-Host "Fetching work item details from Render DB..."
-$apiUrl = $IngestUrl -replace '/api/tfs-weekly-sync$', '/api/lean-workitems'
-$dbResp = Invoke-RestMethod -Method Get -Uri "$apiUrl?limit=1000" -Headers @{ "x-api-key" = $SyncKey }
+# Build API URL by replacing the sync endpoint path
+if ($IngestUrl -match '^(.+)/api/tfs-weekly-sync$') {
+  $apiBaseUrl = $Matches[1]
+  $apiUrl = "$apiBaseUrl/api/lean-workitems"
+}
+else {
+  # Fallback: try to construct it
+  $apiUrl = $IngestUrl -replace '/tfs-weekly-sync$', '/lean-workitems'
+}
+
+Write-Host "API URL: $apiUrl" -ForegroundColor Gray
+
+# Build full URI with query string
+$fullUri = $apiUrl + "?limit=1000"
+Write-Host "Full URI: $fullUri" -ForegroundColor Gray
+
+$dbResp = Invoke-RestMethod -Method Get -Uri $fullUri -Headers @{ "x-api-key" = $SyncKey }
 $dbItems = $dbResp.rows
 
 # Create lookup by work_item_id
