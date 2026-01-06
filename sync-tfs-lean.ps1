@@ -75,10 +75,19 @@ function Get-UPN {
   if ($v -is [PSObject] -and $v.PSObject.Properties.Name -contains 'uniqueName') { return $v.uniqueName }
   $s = [string]$v
   if ([string]::IsNullOrWhiteSpace($s)) { return $null }
+  
+  # Try angle bracket format first
   $m = [regex]::Match($s, "<(.+?)>")
   if ($m.Success) { return $m.Groups[1].Value }
+  
+  # Try domain\username format
   if ($s -like "*\*") { return $s }
-  return $null
+  
+  # Try email format
+  if ($s -match '^[^@]+@[^@]+$') { return $s }
+  
+  # FIX: Return raw string instead of null to prevent data loss
+  return $s
 }
 
 function Find-ReleaseInTags {
@@ -253,8 +262,17 @@ foreach ($wi in $items) {
   $effortRaw = $fields.'Microsoft.VSTS.Scheduling.Effort'
   $storyPointsRaw = $fields.'Microsoft.VSTS.Scheduling.StoryPoints'
   $effort = $null
-  if ($null -ne $effortRaw) { $effort = [double]$effortRaw }
-  elseif ($null -ne $storyPointsRaw) { $effort = [double]$storyPointsRaw }
+  if ($null -ne $effortRaw) { 
+    $effort = [double]$effortRaw 
+  }
+  elseif ($null -ne $storyPointsRaw) { 
+    $effort = [double]$storyPointsRaw 
+  }
+  
+  # FIX: Log if both exist but we're using Effort (data loss detection)
+  if ($null -ne $effortRaw -and $null -ne $storyPointsRaw -and $effortRaw -ne $storyPointsRaw) {
+    Write-Warning "WorkItem $($wi.id): Both Effort ($effortRaw) and StoryPoints ($storyPointsRaw) present. Using Effort."
+  }
 
   $parentId = $null
   $depCount = 0
@@ -313,10 +331,11 @@ foreach ($wi in $items) {
     release            = $release
     createdBy          = Get-Name -v $createdByRaw
     changedBy          = Get-Name -v $changedByRaw
-    createdDate        = $fields.'System.CreatedDate'
-    changedDate        = $fields.'System.ChangedDate'
-    stateChangeDate    = $fields.'Microsoft.VSTS.Common.StateChangeDate'
-    closedDate         = $fields.'Microsoft.VSTS.Common.ClosedDate'
+    # FIX: Ensure dates are in UTC format (TFS API should return UTC but we normalize to be safe)
+    createdDate        = $fields.'System.CreatedDate' ? ([datetime]$fields.'System.CreatedDate').ToUniversalTime().ToString('o') : $null
+    changedDate        = $fields.'System.ChangedDate' ? ([datetime]$fields.'System.ChangedDate').ToUniversalTime().ToString('o') : $null
+    stateChangeDate    = $fields.'Microsoft.VSTS.Common.StateChangeDate' ? ([datetime]$fields.'Microsoft.VSTS.Common.StateChangeDate').ToUniversalTime().ToString('o') : $null
+    closedDate         = $fields.'Microsoft.VSTS.Common.ClosedDate' ? ([datetime]$fields.'Microsoft.VSTS.Common.ClosedDate').ToUniversalTime().ToString('o') : $null
     severity           = $fields.'Microsoft.VSTS.Common.Severity'
     effort             = $effort
     parentId           = $parentId
@@ -345,6 +364,22 @@ $parentLookup = @{}
 
 if ($parentIds.Count -gt 0) {
   Write-Host "Fetching parents: $($parentIds.Count)"
+  
+  # FIX: Ensure all parents are in the initial items list to prevent orphaned refs
+  $allIds = [System.Collections.Generic.HashSet[int]]::new($ids)
+  $missingParentIds = @()
+  foreach ($pId in $parentIds) {
+    if (-not $allIds.Contains($pId)) {
+      $missingParentIds += $pId
+    }
+  }
+  
+  if ($missingParentIds.Count -gt 0) {
+    Write-Host "Fetching $($missingParentIds.Count) missing parent work items..."
+    $additionalParents = Get-TfsWorkItems -Ids $missingParentIds
+    $items += $additionalParents
+  }
+  
   $parents = Get-TfsWorkItems -Ids $parentIds
   foreach ($p in $parents) {
     $pf = $p.fields

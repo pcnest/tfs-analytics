@@ -727,6 +727,66 @@ function requireApiKey(req, res) {
   return true;
 }
 
+// FIX P0: Input validation to prevent data corruption
+function validateRow(r, idx) {
+  const errors = [];
+
+  // Validate work_item_id (must be positive integer)
+  if (!Number.isInteger(r.workItemId) || r.workItemId <= 0) {
+    errors.push(`Row ${idx}: Invalid work_item_id: ${r.workItemId}`);
+  }
+
+  // Validate type (must be valid work item type)
+  const validTypes = new Set([
+    'Product Backlog Item',
+    'Bug',
+    'Task',
+    'Feature',
+  ]);
+  if (!r.type || !validTypes.has(r.type)) {
+    errors.push(`Row ${idx}: Invalid type: ${r.type}`);
+  }
+
+  // Validate required fields
+  if (!r.title || typeof r.title !== 'string' || r.title.trim() === '') {
+    errors.push(`Row ${idx}: Missing or invalid title`);
+  }
+
+  if (!r.state || typeof r.state !== 'string' || r.state.trim() === '') {
+    errors.push(`Row ${idx}: Missing or invalid state`);
+  }
+
+  // Validate effort (must be non-negative if present)
+  if (r.effort !== null && r.effort !== undefined) {
+    const e = Number(r.effort);
+    if (!Number.isFinite(e) || e < 0) {
+      errors.push(
+        `Row ${idx}: Invalid effort: ${r.effort} (must be non-negative number)`
+      );
+    }
+  }
+
+  // Validate counts (must be non-negative integers if present)
+  const countFields = [
+    'depCount',
+    'openDepCount',
+    'relatedLinkCount',
+    'openRelatedCount',
+  ];
+  for (const field of countFields) {
+    if (r[field] !== null && r[field] !== undefined) {
+      const val = Number(r[field]);
+      if (!Number.isFinite(val) || val < 0 || !Number.isInteger(val)) {
+        errors.push(
+          `Row ${idx}: Invalid ${field}: ${r[field]} (must be non-negative integer)`
+        );
+      }
+    }
+  }
+
+  return errors;
+}
+
 function toDateOrNull(v) {
   if (!v) return null;
   const d = new Date(v);
@@ -762,7 +822,7 @@ function mapProjectForRelease(release, currentProject) {
 
 // Build a single multi-row upsert statement (chunked) for good performance.
 function buildUpsert(rows) {
-  // Columns match schema.sql
+  // Columns match schema.sql (including is_deleted for soft delete support)
   const cols = [
     'work_item_id',
     'type',
@@ -793,6 +853,7 @@ function buildUpsert(rows) {
     'closed_date',
     'source',
     'synced_at',
+    'is_deleted', // FIX P0: Soft delete support
   ];
 
   const values = [];
@@ -843,7 +904,8 @@ function buildUpsert(rows) {
           : normInt(r.openRelatedCount) ?? 0,
         toDateOrNull(r.closedDate),
         r.source ?? 'tfs-weekly-sync',
-        toDateOrNull(r.syncedAtUtc) ?? new Date()
+        toDateOrNull(r.syncedAtUtc) ?? new Date(),
+        false // FIX P0: is_deleted = false (item is active)
       );
 
       return `(${cols.map((_, j) => p(j)).join(',')})`;
@@ -881,7 +943,8 @@ function buildUpsert(rows) {
       open_related_count = EXCLUDED.open_related_count,
       closed_date        = EXCLUDED.closed_date,
       source             = EXCLUDED.source,
-      synced_at          = EXCLUDED.synced_at
+      synced_at          = EXCLUDED.synced_at,
+      is_deleted         = EXCLUDED.is_deleted
   `;
 
   return { text: insertSql, values };
@@ -947,6 +1010,62 @@ function buildSnapshotInsert(runId, snapshotAt, rows) {
 }
 
 // ---------- Ingest ----------
+// FIX P2: Delta sync watermark endpoint
+app.get('/api/last-sync-watermark', async (req, res) => {
+  if (!requireApiKey(req, res)) return;
+
+  try {
+    const r = await pool.query(
+      'SELECT MAX(changed_date) AS last_changed_date FROM tfs_workitems_analytics WHERE is_deleted = FALSE'
+    );
+    res.json({
+      ok: true,
+      lastChangedDate: r.rows[0]?.last_changed_date || null,
+    });
+  } catch (e) {
+    console.error('last-sync-watermark error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// FIX P1: Orphaned reference check endpoint
+app.get('/api/check-orphaned-refs', async (req, res) => {
+  if (!requireApiKey(req, res)) return;
+
+  try {
+    const orphanedParents = await pool.query(`
+      SELECT work_item_id, parent_id, title
+      FROM tfs_workitems_analytics
+      WHERE parent_id IS NOT NULL
+        AND is_deleted = FALSE
+        AND parent_id NOT IN (SELECT work_item_id FROM tfs_workitems_analytics)
+      ORDER BY work_item_id
+      LIMIT 100
+    `);
+
+    const orphanedFeatures = await pool.query(`
+      SELECT work_item_id, feature_id, title
+      FROM tfs_workitems_analytics
+      WHERE feature_id IS NOT NULL
+        AND is_deleted = FALSE
+        AND feature_id NOT IN (SELECT work_item_id FROM tfs_workitems_analytics)
+      ORDER BY work_item_id
+      LIMIT 100
+    `);
+
+    res.json({
+      ok: true,
+      orphanedParents: orphanedParents.rows,
+      orphanedFeatures: orphanedFeatures.rows,
+      totalOrphanedParents: orphanedParents.rows.length,
+      totalOrphanedFeatures: orphanedFeatures.rows.length,
+    });
+  } catch (e) {
+    console.error('check-orphaned-refs error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 app.post('/api/tfs-weekly-sync', async (req, res) => {
   // Rate limit: 5 requests per minute per IP
   const ip = req.ip || req.connection.remoteAddress || 'unknown';
@@ -978,6 +1097,27 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
   const syncTs = syncedAtUtc ? new Date(syncedAtUtc) : new Date();
   const src = source ?? 'tfs-weekly-sync';
 
+  // FIX P0: Validate all rows before processing
+  const validRows = [];
+  const invalidRows = [];
+
+  rows.forEach((r, i) => {
+    const errs = validateRow(r, i);
+    if (errs.length > 0) {
+      invalidRows.push({ row: r, errors: errs, index: i });
+    } else {
+      validRows.push(r);
+    }
+  });
+
+  // Log validation errors
+  if (invalidRows.length > 0) {
+    console.warn(
+      `Validation failed for ${invalidRows.length} rows:`,
+      invalidRows.slice(0, 5).map((x) => ({ index: x.index, errors: x.errors }))
+    );
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -987,12 +1127,35 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       `INSERT INTO public.tfs_sync_runs(run_at, source, item_count)
        VALUES ($1, $2, $3)
        RETURNING run_id, run_at`,
-      [syncTs, src, rows.length]
+      [syncTs, src, validRows.length]
     );
     const runId = runR.rows[0].run_id;
     const runAt = runR.rows[0].run_at; // normalized by DB
 
-    const chunks = chunkArray(rows, 200);
+    // FIX P2: Track metrics (inserted vs updated)
+    let insertedCount = 0;
+    let updatedCount = 0;
+
+    if (validRows.length > 0) {
+      // Check which work items already exist
+      const existingIdsResult = await client.query(
+        'SELECT work_item_id FROM tfs_workitems_analytics WHERE work_item_id = ANY($1)',
+        [validRows.map((r) => r.workItemId)]
+      );
+      const existingSet = new Set(
+        existingIdsResult.rows.map((r) => r.work_item_id)
+      );
+
+      for (const r of validRows) {
+        if (existingSet.has(r.workItemId)) {
+          updatedCount++;
+        } else {
+          insertedCount++;
+        }
+      }
+    }
+
+    const chunks = chunkArray(validRows, 200);
     for (const ch of chunks) {
       const enriched = ch.map((r) => ({
         ...r,
@@ -1009,8 +1172,48 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       await client.query(s.text, s.values);
     }
 
+    // FIX P2: Store invalid rows in quarantine table
+    if (invalidRows.length > 0) {
+      for (const bad of invalidRows) {
+        await client.query(
+          'INSERT INTO tfs_sync_errors (run_id, row_data, error_message) VALUES ($1, $2, $3)',
+          [runId, JSON.stringify(bad.row), bad.errors.join('; ')]
+        );
+      }
+    }
+
+    // FIX P0: Mark old items as deleted (soft delete)
+    // Items not synced in last 30 days are considered deleted
+    const deleteThreshold = new Date(Date.now() - 30 * 86400 * 1000);
+    const deleteResult = await client.query(
+      'UPDATE tfs_workitems_analytics SET is_deleted = TRUE WHERE synced_at < $1 AND is_deleted = FALSE',
+      [deleteThreshold]
+    );
+    const deletedCount = deleteResult.rowCount || 0;
+
+    // FIX P2: Store metrics in sync run
+    const metrics = {
+      inserted: insertedCount,
+      updated: updatedCount,
+      quarantined: invalidRows.length,
+      deleted: deletedCount,
+      validRows: validRows.length,
+      invalidRows: invalidRows.length,
+    };
+
+    await client.query(
+      'UPDATE tfs_sync_runs SET metrics = $1, last_changed_date = (SELECT MAX(changed_date) FROM tfs_workitems_analytics WHERE is_deleted = FALSE) WHERE run_id = $2',
+      [JSON.stringify(metrics), runId]
+    );
+
     await client.query('COMMIT');
-    res.json({ ok: true, count: rows.length, runId, runAt });
+    res.json({
+      ok: true,
+      count: validRows.length,
+      runId,
+      runAt,
+      metrics,
+    });
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('INGEST ERROR:', e);
@@ -1040,7 +1243,7 @@ app.get('/api/lean-workitems', async (req, res) => {
   const lim = Math.min(Math.max(Number(limit) || 200, 1), 1000);
   const off = Math.max(Number(offset) || 0, 0);
 
-  const where = [];
+  const where = ['is_deleted = FALSE']; // FIX P0: Filter out soft-deleted items
   const params = [];
   const add = (sql, val) => {
     params.push(val);

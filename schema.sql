@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS tfs_workitems_analytics (
   open_related_count  INTEGER,  -- nullable: open counts computed only for active items
 
   source              TEXT,
-  synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  is_deleted          BOOLEAN NOT NULL DEFAULT FALSE  -- FIX: Soft delete support
 );
 
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_project      ON tfs_workitems_analytics (project);
@@ -53,15 +54,18 @@ CREATE INDEX IF NOT EXISTS idx_tfs_analytics_state        ON tfs_workitems_analy
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_feature_id   ON tfs_workitems_analytics (feature_id);
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_changed_date ON tfs_workitems_analytics (changed_date);
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_synced_at    ON tfs_workitems_analytics (synced_at);
+CREATE INDEX IF NOT EXISTS idx_tfs_analytics_is_deleted   ON tfs_workitems_analytics (is_deleted) WHERE is_deleted = FALSE;  -- FIX: Soft delete index
 
 -- ============================================
 -- Sync Runs Tracking
 -- ============================================
 CREATE TABLE IF NOT EXISTS tfs_sync_runs (
-  run_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  run_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  source      TEXT,
-  item_count  INTEGER NOT NULL DEFAULT 0
+  run_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  source            TEXT,
+  item_count        INTEGER NOT NULL DEFAULT 0,
+  metrics           JSONB,  -- FIX: Track inserted/updated/error counts
+  last_changed_date TIMESTAMPTZ  -- FIX: Watermark for delta sync
 );
 
 CREATE INDEX IF NOT EXISTS idx_tfs_sync_runs_run_at ON tfs_sync_runs(run_at DESC);
@@ -92,3 +96,17 @@ CREATE TABLE IF NOT EXISTS tfs_workitems_analytics_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_snap_release_snapshot ON tfs_workitems_analytics_snapshots(release, snapshot_at);
 CREATE UNIQUE INDEX IF NOT EXISTS tfs_workitems_analytics_snapshots_pkey ON tfs_workitems_analytics_snapshots(run_id, work_item_id);
+
+-- ============================================
+-- Sync Errors / Quarantine Table (P2)
+-- ============================================
+CREATE TABLE IF NOT EXISTS tfs_sync_errors (
+  id            SERIAL PRIMARY KEY,
+  run_id        UUID REFERENCES tfs_sync_runs(run_id) ON DELETE CASCADE,
+  row_data      JSONB NOT NULL,
+  error_message TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tfs_sync_errors_run_id ON tfs_sync_errors(run_id);
+CREATE INDEX IF NOT EXISTS idx_tfs_sync_errors_created_at ON tfs_sync_errors(created_at DESC);
