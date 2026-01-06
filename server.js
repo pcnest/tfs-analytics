@@ -2464,6 +2464,263 @@ app.get('/api/lean-workitems/export.csv', async (req, res) => {
   }
 });
 
+// ============================================
+// Historical Metrics Trends
+// ============================================
+app.get('/api/metrics-history', async (req, res) => {
+  const release = req.query.release ? String(req.query.release).trim() : null;
+  const metric = req.query.metric
+    ? String(req.query.metric).trim().toLowerCase()
+    : 'velocity';
+  const weeks = req.query.weeks ? parseInt(req.query.weeks) : 12;
+
+  if (!release) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'release parameter required' });
+  }
+
+  const validMetrics = ['velocity', 'bugs', 'blockers', 'scope', 'quality'];
+  if (!validMetrics.includes(metric)) {
+    return res.status(400).json({
+      ok: false,
+      error: `Invalid metric. Must be one of: ${validMetrics.join(', ')}`,
+    });
+  }
+
+  try {
+    let sql, result;
+
+    if (metric === 'velocity') {
+      // Weekly throughput (items closed per week)
+      sql = `
+        WITH weekly_closed AS (
+          SELECT
+            date_trunc('week', COALESCE(closed_date, state_change_date)) AS week,
+            COUNT(*)::int AS closed_count,
+            SUM(effort)::numeric AS effort_closed
+          FROM tfs_workitems_analytics
+          WHERE release = $1
+            AND lower(state) = 'done'
+            AND COALESCE(closed_date, state_change_date) IS NOT NULL
+            AND COALESCE(closed_date, state_change_date) >= NOW() - INTERVAL '1 week' * $2
+          GROUP BY 1
+          ORDER BY 1
+        )
+        SELECT
+          week,
+          closed_count,
+          COALESCE(effort_closed, 0)::float AS effort_closed
+        FROM weekly_closed
+      `;
+      result = await pool.query(sql, [release, weeks]);
+    } else if (metric === 'bugs') {
+      // Weekly bug metrics (created vs closed)
+      sql = `
+        WITH weekly_created AS (
+          SELECT
+            date_trunc('week', created_date) AS week,
+            COUNT(*)::int AS bugs_created
+          FROM tfs_workitems_analytics
+          WHERE release = $1
+            AND type = 'Bug'
+            AND created_date >= NOW() - INTERVAL '1 week' * $2
+          GROUP BY 1
+        ),
+        weekly_closed AS (
+          SELECT
+            date_trunc('week', COALESCE(closed_date, state_change_date)) AS week,
+            COUNT(*)::int AS bugs_closed
+          FROM tfs_workitems_analytics
+          WHERE release = $1
+            AND type = 'Bug'
+            AND lower(state) = 'done'
+            AND COALESCE(closed_date, state_change_date) >= NOW() - INTERVAL '1 week' * $2
+          GROUP BY 1
+        ),
+        weekly_open AS (
+          SELECT
+            date_trunc('week', snapshot_at) AS week,
+            COUNT(DISTINCT work_item_id)::int AS bugs_open
+          FROM tfs_workitems_analytics_snapshots
+          WHERE release = $1
+            AND type = 'Bug'
+            AND lower(state) NOT IN ('done', 'removed')
+            AND snapshot_at >= NOW() - INTERVAL '1 week' * $2
+          GROUP BY 1
+        )
+        SELECT
+          COALESCE(c.week, cl.week, o.week) AS week,
+          COALESCE(c.bugs_created, 0) AS bugs_created,
+          COALESCE(cl.bugs_closed, 0) AS bugs_closed,
+          COALESCE(o.bugs_open, 0) AS bugs_open
+        FROM weekly_created c
+        FULL OUTER JOIN weekly_closed cl USING (week)
+        FULL OUTER JOIN weekly_open o USING (week)
+        ORDER BY week
+      `;
+      result = await pool.query(sql, [release, weeks]);
+    } else if (metric === 'blockers') {
+      // Weekly blocker trends (items with open dependencies)
+      sql = `
+        WITH weekly_blocked AS (
+          SELECT
+            date_trunc('week', snapshot_at) AS week,
+            COUNT(*)::int AS active_count,
+            COUNT(*) FILTER (WHERE COALESCE(open_dep_count, 0) > 0)::int AS blocked_count,
+            ROUND(AVG(CASE WHEN COALESCE(open_dep_count, 0) > 0 THEN open_dep_count ELSE 0 END), 1)::float AS avg_blockers_per_item
+          FROM tfs_workitems_analytics_snapshots
+          WHERE release = $1
+            AND lower(state) NOT IN ('done', 'removed')
+            AND snapshot_at >= NOW() - INTERVAL '1 week' * $2
+          GROUP BY 1
+          ORDER BY 1
+        )
+        SELECT
+          week,
+          active_count,
+          blocked_count,
+          ROUND((blocked_count::float / NULLIF(active_count, 0) * 100), 1)::float AS blocked_pct,
+          avg_blockers_per_item
+        FROM weekly_blocked
+      `;
+      result = await pool.query(sql, [release, weeks]);
+    } else if (metric === 'scope') {
+      // Weekly scope changes (total active items over time)
+      sql = `
+        WITH weekly_scope AS (
+          SELECT
+            date_trunc('week', snapshot_at) AS week,
+            COUNT(DISTINCT work_item_id)::int AS total_items,
+            COUNT(DISTINCT work_item_id) FILTER (WHERE lower(state) = 'done')::int AS done_items,
+            COUNT(DISTINCT work_item_id) FILTER (WHERE lower(state) NOT IN ('done', 'removed'))::int AS active_items
+          FROM tfs_workitems_analytics_snapshots
+          WHERE release = $1
+            AND snapshot_at >= NOW() - INTERVAL '1 week' * $2
+          GROUP BY 1
+          ORDER BY 1
+        )
+        SELECT
+          week,
+          total_items,
+          done_items,
+          active_items,
+          ROUND((done_items::float / NULLIF(total_items, 0) * 100), 1)::float AS completion_pct
+        FROM weekly_scope
+      `;
+      result = await pool.query(sql, [release, weeks]);
+    } else if (metric === 'quality') {
+      // Weekly quality metrics (bug ratio, severity distribution)
+      sql = `
+        WITH weekly_quality AS (
+          SELECT
+            date_trunc('week', snapshot_at) AS week,
+            COUNT(DISTINCT work_item_id)::int AS total_items,
+            COUNT(DISTINCT work_item_id) FILTER (WHERE type = 'Bug')::int AS bug_count,
+            COUNT(DISTINCT work_item_id) FILTER (WHERE type = 'Bug' AND severity = 'Critical')::int AS critical_bugs
+          FROM tfs_workitems_analytics_snapshots
+          WHERE release = $1
+            AND snapshot_at >= NOW() - INTERVAL '1 week' * $2
+          GROUP BY 1
+          ORDER BY 1
+        )
+        SELECT
+          week,
+          total_items,
+          bug_count,
+          critical_bugs,
+          ROUND((bug_count::float / NULLIF(total_items, 0) * 100), 1)::float AS bug_ratio_pct
+        FROM weekly_quality
+      `;
+      result = await pool.query(sql, [release, weeks]);
+    }
+
+    const data = result.rows;
+
+    // Calculate trend (compare last 2 weeks vs previous 2 weeks)
+    let trend = null;
+    let trendPct = null;
+    let trendDirection = null;
+
+    if (data.length >= 4) {
+      const sortedData = [...data].sort(
+        (a, b) => new Date(b.week) - new Date(a.week)
+      );
+
+      let recentValue, previousValue;
+
+      if (metric === 'velocity') {
+        recentValue =
+          (sortedData[0]?.closed_count || 0) +
+          (sortedData[1]?.closed_count || 0);
+        previousValue =
+          (sortedData[2]?.closed_count || 0) +
+          (sortedData[3]?.closed_count || 0);
+      } else if (metric === 'bugs') {
+        recentValue =
+          (sortedData[0]?.bugs_open || 0) + (sortedData[1]?.bugs_open || 0);
+        previousValue =
+          (sortedData[2]?.bugs_open || 0) + (sortedData[3]?.bugs_open || 0);
+      } else if (metric === 'blockers') {
+        recentValue =
+          (sortedData[0]?.blocked_count || 0) +
+          (sortedData[1]?.blocked_count || 0);
+        previousValue =
+          (sortedData[2]?.blocked_count || 0) +
+          (sortedData[3]?.blocked_count || 0);
+      } else if (metric === 'scope') {
+        recentValue = sortedData[0]?.active_items || 0;
+        previousValue = sortedData[2]?.active_items || 0;
+      } else if (metric === 'quality') {
+        recentValue = sortedData[0]?.bug_ratio_pct || 0;
+        previousValue = sortedData[2]?.bug_ratio_pct || 0;
+      }
+
+      if (previousValue > 0) {
+        trendPct = Math.round(
+          ((recentValue - previousValue) / previousValue) * 100
+        );
+
+        // Determine if trend is good or bad based on metric type
+        const isGoodTrend =
+          (metric === 'velocity' && trendPct > 0) ||
+          (['bugs', 'blockers'].includes(metric) && trendPct < 0) ||
+          (metric === 'scope' && trendPct < 0) ||
+          (metric === 'quality' && trendPct < 0);
+
+        if (trendPct > 5) {
+          trendDirection = isGoodTrend ? 'improving' : 'degrading';
+        } else if (trendPct < -5) {
+          trendDirection = isGoodTrend ? 'degrading' : 'improving';
+        } else {
+          trendDirection = 'stable';
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      release,
+      metric,
+      weeks,
+      data,
+      trend: {
+        direction: trendDirection,
+        changePct: trendPct,
+        description:
+          trendDirection === 'improving'
+            ? `${metric} is trending positively`
+            : trendDirection === 'degrading'
+            ? `${metric} is trending negatively`
+            : `${metric} is stable`,
+      },
+    });
+  } catch (e) {
+    console.error('metrics-history error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`tfs-analytics-dashboard listening on :${PORT}`);
 });

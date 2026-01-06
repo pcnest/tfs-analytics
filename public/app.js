@@ -399,16 +399,27 @@ async function loadQualityTrends() {
     body.innerHTML = '<div class="muted">Loading...</div>';
     card.style.display = 'block';
 
-    const r = await fetch(
-      `/api/quality-trends?release=${encodeURIComponent(release)}`
-    );
-    const j = await r.json();
+    // Fetch both trends data and historical trend
+    const [trendsR, historyR] = await Promise.all([
+      fetch(`/api/quality-trends?release=${encodeURIComponent(release)}`),
+      fetch(
+        `/api/metrics-history?release=${encodeURIComponent(
+          release
+        )}&metric=bugs&weeks=8`
+      ),
+    ]);
 
-    if (r.ok && j.ok) {
-      displayQualityTrends(j);
+    const trendsData = await trendsR.json();
+    const historyData = await historyR.json();
+
+    if (trendsR.ok && trendsData.ok) {
+      displayQualityTrends(
+        trendsData,
+        historyData.ok ? historyData.trend : null
+      );
     } else {
       body.innerHTML = `<div class="muted">Error: ${
-        j.error || 'Failed to load'
+        trendsData.error || 'Failed to load'
       }</div>`;
     }
   } catch (e) {
@@ -417,7 +428,7 @@ async function loadQualityTrends() {
   }
 }
 
-function displayQualityTrends(data) {
+function displayQualityTrends(data, trend) {
   const body = qs('quality-trends-body');
   if (!body) return;
 
@@ -429,8 +440,10 @@ function displayQualityTrends(data) {
     return;
   }
 
+  const trendBadge = trend ? buildTrendBadge(trend) : '';
+
   const summaryHtml = `
-    <div style="display:flex; gap:20px; margin-bottom:14px; flex-wrap:wrap;">
+    <div style="display:flex; gap:20px; margin-bottom:14px; flex-wrap:wrap; align-items:center;">
       <div>
         <div class="small muted">Critical Open</div>
         <div style="font-size:20px; font-weight:700;">${
@@ -449,6 +462,7 @@ function displayQualityTrends(data) {
           summary.totalClosed || 0
         }</div>
       </div>
+      ${trendBadge}
     </div>
   `;
 
@@ -477,16 +491,27 @@ async function loadThroughputChart() {
     body.innerHTML = '<div class="muted">Loading...</div>';
     card.style.display = 'block';
 
-    const r = await fetch(
-      `/api/weekly-throughput?release=${encodeURIComponent(release)}`
-    );
-    const j = await r.json();
+    // Fetch both throughput data and historical trend
+    const [throughputR, historyR] = await Promise.all([
+      fetch(`/api/weekly-throughput?release=${encodeURIComponent(release)}`),
+      fetch(
+        `/api/metrics-history?release=${encodeURIComponent(
+          release
+        )}&metric=velocity&weeks=8`
+      ),
+    ]);
 
-    if (r.ok && j.ok) {
-      displayThroughputChart(j);
+    const throughputData = await throughputR.json();
+    const historyData = await historyR.json();
+
+    if (throughputR.ok && throughputData.ok) {
+      displayThroughputChart(
+        throughputData,
+        historyData.ok ? historyData.trend : null
+      );
     } else {
       body.innerHTML = `<div class="muted">Error: ${
-        j.error || 'Failed to load'
+        throughputData.error || 'Failed to load'
       }</div>`;
     }
   } catch (e) {
@@ -495,7 +520,7 @@ async function loadThroughputChart() {
   }
 }
 
-function displayThroughputChart(data) {
+function displayThroughputChart(data, trend) {
   const body = qs('throughput-body');
   if (!body) return;
 
@@ -507,8 +532,10 @@ function displayThroughputChart(data) {
     return;
   }
 
+  const trendBadge = trend ? buildTrendBadge(trend) : '';
+
   const summaryHtml = `
-    <div style="display:flex; gap:20px; margin-bottom:14px; flex-wrap:wrap;">
+    <div style="display:flex; gap:20px; margin-bottom:14px; flex-wrap:wrap; align-items:center;">
       <div>
         <div class="small muted">Avg/Week</div>
         <div style="font-size:20px; font-weight:700;">${
@@ -533,6 +560,7 @@ function displayThroughputChart(data) {
           summary.weeksTracked || 0
         }</div>
       </div>
+      ${trendBadge}
     </div>
   `;
 
@@ -544,6 +572,46 @@ function displayThroughputChart(data) {
   );
 
   body.innerHTML = summaryHtml + chartSvg;
+}
+
+// ---------- Trend Badge Builder ----------
+function buildTrendBadge(trend) {
+  if (!trend || !trend.direction) return '';
+
+  const { direction, changePct, description } = trend;
+
+  let arrow = '';
+  let color = '#666';
+  let bgColor = '#f5f5f5';
+
+  if (direction === 'improving') {
+    arrow = '↗';
+    color = '#2e7d32';
+    bgColor = '#e8f5e9';
+  } else if (direction === 'degrading') {
+    arrow = '↘';
+    color = '#c62828';
+    bgColor = '#ffebee';
+  } else {
+    arrow = '→';
+    color = '#666';
+    bgColor = '#f5f5f5';
+  }
+
+  const changeText =
+    changePct !== null && changePct !== undefined
+      ? `${changePct > 0 ? '+' : ''}${changePct}%`
+      : '';
+
+  return `
+    <div style="display:flex; align-items:center; gap:6px; padding:6px 12px; background:${bgColor}; border-radius:12px; font-size:12px; color:${color}; font-weight:600;">
+      <span style="font-size:16px;">${arrow}</span>
+      <span>${changeText}</span>
+      <span class="muted" style="font-size:11px; color:${color}; opacity:0.8;" title="${escapeHtml(
+    description || ''
+  )}">${direction}</span>
+    </div>
+  `;
 }
 
 // ---------- Simple Line Chart Builder ----------
