@@ -5,6 +5,65 @@ function qs(id) {
   return document.getElementById(id);
 }
 
+// ---------- URL State Management (Bookmarkable URLs) ----------
+function loadFiltersFromURL() {
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.get('q')) qs('q').value = params.get('q');
+  if (params.get('release')) qs('release').value = params.get('release');
+  if (params.get('assignedToUPN'))
+    qs('assignedToUPN').value = params.get('assignedToUPN');
+  if (params.get('state')) qs('state').value = params.get('state');
+  if (params.get('type')) qs('type').value = params.get('type');
+  if (params.get('feature')) qs('feature').value = params.get('feature');
+  if (params.get('fromChanged'))
+    qs('fromChanged').value = params.get('fromChanged');
+  if (params.get('toChanged')) qs('toChanged').value = params.get('toChanged');
+  if (params.get('limit')) qs('limit').value = params.get('limit');
+}
+
+function updateURL() {
+  const params = buildParams();
+  const newURL = `${window.location.pathname}?${params.toString()}`;
+  window.history.replaceState({}, '', newURL);
+}
+
+// ---------- Release Dropdown ----------
+async function loadReleaseDropdown() {
+  try {
+    const r = await fetch('/api/releases');
+    const j = await r.json();
+
+    if (r.ok && j.ok && j.releases && j.releases.length > 0) {
+      const select = qs('release');
+      if (!select) return;
+
+      // Save current value
+      const currentValue = select.value;
+
+      // Clear existing options except the first (placeholder)
+      while (select.options.length > 1) {
+        select.remove(1);
+      }
+
+      // Add releases as options
+      j.releases.forEach((release) => {
+        const option = document.createElement('option');
+        option.value = release;
+        option.textContent = release;
+        select.appendChild(option);
+      });
+
+      // Restore value if it exists
+      if (currentValue && j.releases.includes(currentValue)) {
+        select.value = currentValue;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load releases:', e);
+  }
+}
+
 // Load last sync info on page load
 async function loadLastSyncInfo() {
   try {
@@ -941,6 +1000,7 @@ async function load() {
 
 qs('btnLoad').addEventListener('click', async () => {
   offset = 0;
+  updateURL(); // Update URL with current filters
   await loadConfig();
   load();
   loadCriticalBugs();
@@ -974,11 +1034,18 @@ qs('next').addEventListener('click', () => {
 (async function boot() {
   await loadConfig();
   await loadLastSyncInfo();
-  loadCriticalBugs();
-  loadStaleItems();
-  loadReleaseHealth();
-  loadReleaseProgress(qs('release')?.value);
-  loadReleaseInsights(qs('release')?.value);
-  loadReleaseCycle(qs('release')?.value);
-  load();
+  await loadReleaseDropdown();
+  loadFiltersFromURL(); // Load filters from URL if present
+
+  // Only auto-load if there are URL params
+  const hasParams = window.location.search.length > 1;
+  if (hasParams) {
+    loadCriticalBugs();
+    loadStaleItems();
+    loadReleaseHealth();
+    loadReleaseProgress(qs('release')?.value);
+    loadReleaseInsights(qs('release')?.value);
+    loadReleaseCycle(qs('release')?.value);
+    load();
+  }
 })();

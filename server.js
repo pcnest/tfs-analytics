@@ -1119,6 +1119,156 @@ app.get('/api/critical-bugs', async (req, res) => {
   }
 });
 
+// ---------- Predictability Index Report ----------
+app.get('/api/release-predictability', async (req, res) => {
+  const releases = req.query.releases
+    ? String(req.query.releases)
+        .split(',')
+        .map((r) => r.trim())
+        .filter((r) => r)
+    : null;
+
+  if (!releases || releases.length === 0) {
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        error: 'releases parameter required (comma-separated)',
+      });
+  }
+
+  try {
+    const results = [];
+
+    for (const release of releases) {
+      // Reuse scope summary logic
+      const sql = `
+        WITH bounds AS (
+          SELECT min(snapshot_at) AS base_at, max(snapshot_at) AS last_at
+          FROM public.tfs_workitems_analytics_snapshots
+          WHERE release = $1
+        ),
+        base AS (
+          SELECT work_item_id
+          FROM public.tfs_workitems_analytics_snapshots
+          WHERE release = $1 AND snapshot_at = (SELECT base_at FROM bounds)
+        ),
+        last AS (
+          SELECT work_item_id, state
+          FROM public.tfs_workitems_analytics_snapshots
+          WHERE release = $1 AND snapshot_at = (SELECT last_at FROM bounds)
+        ),
+        added AS (
+          SELECT l.work_item_id FROM last l
+          LEFT JOIN base b USING(work_item_id)
+          WHERE b.work_item_id IS NULL
+        ),
+        removed AS (
+          SELECT b.work_item_id FROM base b
+          LEFT JOIN last l USING(work_item_id)
+          WHERE l.work_item_id IS NULL
+        ),
+        delivered AS (
+          SELECT count(*)::int AS delivered
+          FROM last
+          WHERE work_item_id IN (SELECT work_item_id FROM base)
+            AND state = 'Done'
+        )
+        SELECT
+          (SELECT base_at FROM bounds) AS baseline_at,
+          (SELECT last_at FROM bounds) AS latest_at,
+          (SELECT count(*)::int FROM base) AS baseline_scope,
+          (SELECT count(*)::int FROM last) AS current_scope,
+          (SELECT count(*)::int FROM added) AS added_scope,
+          (SELECT count(*)::int FROM removed) AS removed_scope,
+          (SELECT delivered FROM delivered) AS delivered_from_baseline
+      `;
+
+      const r = await pool.query(sql, [release]);
+      const row = r.rows[0] || {};
+
+      const baseline = Number(row.baseline_scope || 0);
+      const added = Number(row.added_scope || 0);
+      const removed = Number(row.removed_scope || 0);
+      const delivered = Number(row.delivered_from_baseline || 0);
+      const current = Number(row.current_scope || 0);
+
+      // Calculate metrics
+      const scopeChurnPct =
+        baseline > 0 ? Math.round(((added + removed) / baseline) * 100) : 0;
+      const predictabilityScore = Math.max(0, 100 - scopeChurnPct);
+      const committedVsDeliveredPct =
+        baseline > 0 ? Math.round((delivered / baseline) * 100) : 0;
+
+      // Calculate duration in weeks
+      const baseAt = row.baseline_at ? new Date(row.baseline_at) : null;
+      const latestAt = row.latest_at ? new Date(row.latest_at) : null;
+      const durationWeeks =
+        baseAt && latestAt
+          ? Math.max(
+              1,
+              Math.round(
+                (latestAt.getTime() - baseAt.getTime()) / (7 * 86400 * 1000)
+              )
+            )
+          : null;
+
+      results.push({
+        release,
+        baselineAt: row.baseline_at,
+        latestAt: row.latest_at,
+        durationWeeks,
+        baseline,
+        current,
+        added,
+        removed,
+        delivered,
+        scopeChurnPct,
+        predictabilityScore,
+        committedVsDeliveredPct,
+      });
+    }
+
+    // Sort by predictability score (best first)
+    results.sort((a, b) => b.predictabilityScore - a.predictabilityScore);
+
+    res.json({
+      ok: true,
+      releases: results.map((r) => r.release),
+      data: results,
+    });
+  } catch (e) {
+    console.error('release-predictability error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---------- Release List (for dropdown) ----------
+app.get('/api/releases', async (req, res) => {
+  try {
+    const sql = `
+      SELECT DISTINCT release
+      FROM tfs_workitems_analytics
+      WHERE is_deleted = FALSE
+        AND release IS NOT NULL
+        AND release != ''
+      ORDER BY release DESC
+    `;
+
+    const r = await pool.query(sql);
+    const releases = r.rows.map((row) => row.release);
+
+    res.json({
+      ok: true,
+      releases,
+      count: releases.length,
+    });
+  } catch (e) {
+    console.error('releases list error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // ---------- CSV Exports for Reports ----------
 app.get('/api/quality-trends/export.csv', async (req, res) => {
   const release = req.query.release ? String(req.query.release).trim() : null;
