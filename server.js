@@ -838,7 +838,7 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
       console.log('v_release_health not available:', e.message);
     }
 
-    // Fetch throughput ETA
+    // Fetch throughput ETA (use 30-day window, fallback to full release)
     const etaSql = `
       WITH asof AS (
         SELECT COALESCE(MAX(synced_at), now()) AS as_of
@@ -859,19 +859,44 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
         WHERE release = $1
           AND lower(state) NOT IN ('done','removed')
           AND is_deleted = FALSE
+      ),
+      duration AS (
+        SELECT 
+          MIN(COALESCE(closed_date, state_change_date)) AS first_done,
+          MAX(COALESCE(closed_date, state_change_date)) AS last_done,
+          EXTRACT(EPOCH FROM (
+            MAX(COALESCE(closed_date, state_change_date)) - 
+            MIN(COALESCE(closed_date, state_change_date))
+          ))/86400 AS days_elapsed
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+          AND lower(state) = 'done'
+          AND COALESCE(closed_date, state_change_date) IS NOT NULL
       )
       SELECT
         (SELECT as_of FROM asof) AS as_of,
-        COUNT(*) FILTER (WHERE done_at >= (SELECT as_of FROM asof) - interval '7 days')::int AS done_7d,
-        (SELECT remaining FROM remaining) AS remaining
+        COUNT(*) FILTER (WHERE done_at >= (SELECT as_of FROM asof) - interval '30 days')::int AS done_30d,
+        COUNT(*)::int AS done_all,
+        (SELECT remaining FROM remaining) AS remaining,
+        (SELECT days_elapsed FROM duration) AS days_elapsed
       FROM done
     `;
     const etaR = await pool.query(etaSql, [release]);
     const eta = etaR.rows[0] || {};
-    const done7 = Number(eta.done_7d || 0);
-    const avgPerDay7 = done7 / 7;
+    const done30 = Number(eta.done_30d || 0);
+    const doneAll = Number(eta.done_all || 0);
+    const daysElapsed = Number(eta.days_elapsed || 0);
     const remaining = Number(eta.remaining || 0);
-    const etaDays = avgPerDay7 > 0 ? Math.ceil(remaining / avgPerDay7) : null;
+
+    // Use 30-day average if we have recent activity, otherwise use full release history
+    let avgPerDay = 0;
+    if (done30 > 0) {
+      avgPerDay = done30 / 30;
+    } else if (doneAll > 0 && daysElapsed > 0) {
+      avgPerDay = doneAll / daysElapsed;
+    }
+
+    const etaDays = avgPerDay > 0 ? Math.ceil(remaining / avgPerDay) : null;
 
     // Compute overall health score (simple weighted average)
     const scores = [];
