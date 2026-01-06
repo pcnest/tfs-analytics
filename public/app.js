@@ -1,4 +1,96 @@
 let offset = 0;
+let lastSyncInfo = null;
+
+function qs(id) {
+  return document.getElementById(id);
+}
+
+// Load last sync info on page load
+async function loadLastSyncInfo() {
+  try {
+    const r = await fetch('/api/last-sync-info');
+    const j = await r.json();
+    if (r.ok && j.ok) {
+      lastSyncInfo = j;
+      displaySyncBanner(j);
+    }
+  } catch (e) {
+    console.error('Failed to load sync info:', e);
+  }
+}
+
+function displaySyncBanner(info) {
+  const banner = qs('syncBanner');
+  if (!banner) return;
+
+  const { lastSync, daysSince, isStale, releaseCount } = info;
+  
+  if (!lastSync) {
+    banner.innerHTML = `
+      <span class="status-indicator red"></span>
+      <span><strong>No sync data found.</strong> Run sync script to populate data.</span>
+    `;
+    banner.className = 'sync-banner stale';
+    banner.style.display = 'flex';
+    return;
+  }
+
+  const date = new Date(lastSync);
+  const dateStr = date.toISOString().slice(0, 16).replace('T', ' ');
+  
+  let statusClass = 'fresh';
+  let statusColor = 'green';
+  let message = `Data is up to date`;
+  
+  if (daysSince > 7) {
+    statusClass = 'stale';
+    statusColor = 'red';
+    message = `⚠️ Data is ${daysSince} days old`;
+  } else if (daysSince > 3) {
+    statusClass = 'warning';
+    statusColor = 'yellow';
+    message = `Data is ${daysSince} days old`;
+  }
+  
+  banner.innerHTML = `
+    <span class="status-indicator ${statusColor}"></span>
+    <span><strong>Last synced:</strong> ${dateStr} UTC (${daysSince} day${daysSince !== 1 ? 's' : ''} ago) • ${releaseCount} release${releaseCount !== 1 ? 's' : ''} • ${message}</span>
+  `;
+  banner.className = `sync-banner ${statusClass}`;
+  banner.style.display = 'flex';
+}
+
+// Load critical bugs for current release filter
+async function loadCriticalBugs() {
+  const release = qs('release')?.value?.trim() || null;
+  
+  try {
+    const params = new URLSearchParams();
+    if (release) params.set('release', release);
+    
+    const r = await fetch(`/api/critical-bugs?${params}`);
+    const j = await r.json();
+    
+    if (r.ok && j.ok) {
+      displayCriticalBugs(j);
+    }
+  } catch (e) {
+    console.error('Failed to load critical bugs:', e);
+  }
+}
+
+function displayCriticalBugs(data) {
+  const card = qs('criticalBugsCard');
+  const count = qs('criticalBugsCount');
+  const releaseLabel = qs('criticalBugsRelease');
+  
+  if (!card || !count || !releaseLabel) return;
+  
+  count.textContent = data.criticalBugsOpen || 0;
+  releaseLabel.textContent = data.release === 'all' ? 'All releases' : `Release: ${data.release}`;
+  
+  card.style.display = 'block';
+}
 
 function qs(id) {
   return document.getElementById(id);
@@ -781,6 +873,7 @@ qs('btnLoad').addEventListener('click', async () => {
   offset = 0;
   await loadConfig();
   load();
+  loadCriticalBugs();
   loadReleaseHealth();
   loadReleaseProgress(qs('release')?.value);
   loadReleaseInsights(qs('release')?.value);
@@ -809,6 +902,8 @@ qs('next').addEventListener('click', () => {
 // initial load
 (async function boot() {
   await loadConfig();
+  await loadLastSyncInfo();
+  loadCriticalBugs();
   loadReleaseHealth();
   loadReleaseProgress(qs('release')?.value);
   loadReleaseInsights(qs('release')?.value);

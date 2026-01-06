@@ -713,6 +713,377 @@ WHERE release = $1;
   }
 });
 
+// ---------- Executive Release Readiness Scorecard ----------
+app.get('/api/release-readiness-scorecard', async (req, res) => {
+  const release = (req.query.release || '').toString().trim();
+  if (!release)
+    return res.status(400).json({ ok: false, error: 'release required' });
+
+  try {
+    // Check if we have enough data
+    const snapshotCheck = await pool.query(
+      'SELECT COUNT(DISTINCT run_id)::int AS snapshot_count FROM tfs_workitems_analytics_snapshots WHERE release = $1',
+      [release]
+    );
+    const snapshotCount = snapshotCheck.rows[0]?.snapshot_count || 0;
+    
+    const lastSyncCheck = await pool.query(
+      'SELECT MAX(synced_at) AS last_sync FROM tfs_workitems_analytics WHERE release = $1',
+      [release]
+    );
+    const lastSync = lastSyncCheck.rows[0]?.last_sync;
+    const daysSinceSync = lastSync ? Math.floor((Date.now() - new Date(lastSync).getTime()) / 86400000) : null;
+
+    // Fetch scope summary
+    const scopeSql = `
+      WITH bounds AS (
+        SELECT min(snapshot_at) AS base_at, max(snapshot_at) AS last_at
+        FROM public.tfs_workitems_analytics_snapshots
+        WHERE release = $1
+      ),
+      base AS (
+        SELECT work_item_id
+        FROM public.tfs_workitems_analytics_snapshots
+        WHERE release = $1 AND snapshot_at = (SELECT base_at FROM bounds)
+      ),
+      last AS (
+        SELECT work_item_id, state
+        FROM public.tfs_workitems_analytics_snapshots
+        WHERE release = $1 AND snapshot_at = (SELECT last_at FROM bounds)
+      ),
+      added AS (
+        SELECT l.work_item_id FROM last l
+        LEFT JOIN base b USING(work_item_id)
+        WHERE b.work_item_id IS NULL
+      ),
+      removed AS (
+        SELECT b.work_item_id FROM base b
+        LEFT JOIN last l USING(work_item_id)
+        WHERE l.work_item_id IS NULL
+      ),
+      delivered AS (
+        SELECT count(*)::int AS delivered
+        FROM last
+        WHERE work_item_id IN (SELECT work_item_id FROM base)
+          AND state = 'Done'
+      )
+      SELECT
+        (SELECT count(*)::int FROM base) AS baseline_scope,
+        (SELECT count(*)::int FROM added) AS added_scope,
+        (SELECT count(*)::int FROM removed) AS removed_scope,
+        (SELECT delivered FROM delivered) AS delivered_from_baseline
+    `;
+    const scopeR = await pool.query(scopeSql, [release]);
+    const scope = scopeR.rows[0] || {};
+    const baseline = Number(scope.baseline_scope || 0);
+    const added = Number(scope.added_scope || 0);
+    const removed = Number(scope.removed_scope || 0);
+    const delivered = Number(scope.delivered_from_baseline || 0);
+    const scopeStability = baseline > 0 ? Math.round((1 - (added + removed) / baseline) * 100) : 0;
+    const predictability = baseline > 0 ? Math.round((delivered / baseline) * 100) : 0;
+
+    // Fetch dependency risk
+    const depSql = `
+      SELECT
+        COUNT(*)::int AS active_count,
+        COUNT(*) FILTER (WHERE COALESCE(open_dep_count,0) > 0)::int AS blocked_count
+      FROM public.tfs_workitems_analytics
+      WHERE release = $1
+        AND lower(state) NOT IN ('done','removed')
+        AND is_deleted = FALSE
+    `;
+    const depR = await pool.query(depSql, [release]);
+    const dep = depR.rows[0] || {};
+    const active = Number(dep.active_count || 0);
+    const blocked = Number(dep.blocked_count || 0);
+    const blockedPct = active > 0 ? Math.round((blocked / active) * 100) : 0;
+
+    // Fetch release health (confidence + QA)
+    const healthSql = `
+      SELECT
+        "ConfidencePct"::int AS confidence_pct,
+        "Confidence Driver" AS confidence_driver,
+        "QAPass"::int AS qa_pass,
+        "QATotal"::int AS qa_total,
+        "QA%"::int AS qa_pct,
+        "Top Blockers" AS top_blockers
+      FROM public.v_release_health
+      WHERE project IS NOT NULL AND release = $1
+      LIMIT 1
+    `;
+    let confidence = null;
+    let qaPct = null;
+    let qaPass = null;
+    let qaTotal = null;
+    let topBlockers = null;
+    let confidenceDriver = null;
+    
+    try {
+      const healthR = await pool.query(healthSql, [release]);
+      if (healthR.rows.length > 0) {
+        const health = healthR.rows[0];
+        confidence = health.confidence_pct;
+        qaPct = health.qa_pct;
+        qaPass = health.qa_pass;
+        qaTotal = health.qa_total;
+        topBlockers = health.top_blockers;
+        confidenceDriver = health.confidence_driver;
+      }
+    } catch (e) {
+      // View may not exist
+      console.log('v_release_health not available:', e.message);
+    }
+
+    // Fetch throughput ETA
+    const etaSql = `
+      WITH asof AS (
+        SELECT COALESCE(MAX(synced_at), now()) AS as_of
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+      ),
+      done AS (
+        SELECT
+          COALESCE(closed_date, state_change_date) AS done_at
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+          AND lower(state) = 'done'
+          AND COALESCE(closed_date, state_change_date) IS NOT NULL
+      ),
+      remaining AS (
+        SELECT COUNT(*)::int AS remaining
+        FROM public.tfs_workitems_analytics
+        WHERE release = $1
+          AND lower(state) NOT IN ('done','removed')
+          AND is_deleted = FALSE
+      )
+      SELECT
+        (SELECT as_of FROM asof) AS as_of,
+        COUNT(*) FILTER (WHERE done_at >= (SELECT as_of FROM asof) - interval '7 days')::int AS done_7d,
+        (SELECT remaining FROM remaining) AS remaining
+      FROM done
+    `;
+    const etaR = await pool.query(etaSql, [release]);
+    const eta = etaR.rows[0] || {};
+    const done7 = Number(eta.done_7d || 0);
+    const avgPerDay7 = done7 / 7;
+    const remaining = Number(eta.remaining || 0);
+    const etaDays = avgPerDay7 > 0 ? Math.ceil(remaining / avgPerDay7) : null;
+
+    // Compute overall health score (simple weighted average)
+    const scores = [];
+    if (scopeStability !== null) scores.push(scopeStability);
+    if (predictability !== null) scores.push(predictability);
+    if (confidence !== null) scores.push(confidence);
+    if (qaPct !== null) scores.push(qaPct);
+    if (blockedPct !== null) scores.push(100 - blockedPct); // invert (lower blocked = better)
+    const overallScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+
+    // Traffic light status
+    const getStatus = (score) => {
+      if (score === null) return 'unknown';
+      if (score >= 80) return 'green';
+      if (score >= 60) return 'yellow';
+      return 'red';
+    };
+
+    const warnings = [];
+    if (snapshotCount < 2) warnings.push('Not enough snapshot data (need at least 2 syncs for burnup)');
+    if (daysSinceSync !== null && daysSinceSync > 7) warnings.push(`Data is ${daysSinceSync} days old`);
+    if (baseline < 10) warnings.push('Sample size too small for reliable ETA (<10 items)');
+
+    res.json({
+      ok: true,
+      release,
+      lastSync,
+      daysSinceSync,
+      snapshotCount,
+      warnings,
+      metrics: {
+        scopeStability: { value: scopeStability, status: getStatus(scopeStability) },
+        predictability: { value: predictability, status: getStatus(predictability) },
+        confidence: { value: confidence, status: getStatus(confidence), driver: confidenceDriver },
+        qaPct: { value: qaPct, pass: qaPass, total: qaTotal, status: getStatus(qaPct) },
+        blockedPct: { value: blockedPct, status: getStatus(100 - blockedPct) },
+        etaDays: { value: etaDays },
+        overallScore: { value: overallScore, status: getStatus(overallScore) }
+      },
+      details: {
+        baseline,
+        added,
+        removed,
+        delivered,
+        active,
+        blocked,
+        remaining,
+        topBlockers
+      }
+    });
+  } catch (e) {
+    console.error('release-readiness-scorecard error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---------- CSV Export for Release Health ----------
+app.get('/api/release-health/export.csv', async (req, res) => {
+  try {
+    const viewExists = await pool.query(
+      "SELECT to_regclass('public.v_release_health') AS view_name"
+    );
+    const hasView = !!viewExists.rows?.[0]?.view_name;
+    if (!hasView) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Release health view not configured. Create public.v_release_health to enable it.'
+      });
+    }
+
+    const { project, release, includeNoRelease } = req.query;
+    const proj = project ? String(project).trim() : null;
+    const rel = release ? String(release).trim() : null;
+    const includeNoRel =
+      String(includeNoRelease || '0').toLowerCase() === '1' ||
+      String(includeNoRelease || '').toLowerCase() === 'true';
+
+    const sql = `
+      SELECT
+        project,
+        release,
+        "ConfidencePct"::int AS confidence_pct,
+        "Confidence Signals" AS confidence_signals,
+        "Confidence Driver" AS confidence_driver,
+        "Critical"::int AS critical,
+        "High"::int AS high,
+        "Medium"::int AS medium,
+        "Low"::int AS low,
+        "OnHold"::int AS on_hold,
+        "QAPass"::int AS qa_pass,
+        "QATotal"::int AS qa_total,
+        "QA status (pass/total)" AS qa_status,
+        "QA%"::int AS qa_pct,
+        "Top Blockers" AS top_blockers,
+        "Decision Needed (Y/N)" AS decision_needed
+      FROM public.v_release_health
+      WHERE
+        ($1::text IS NULL OR project = $1)
+        AND ($2::text IS NULL OR release = $2)
+        AND ($3::bool = true OR release <> '(no release)')
+      ORDER BY project, release
+    `;
+
+    const { rows } = await pool.query(sql, [proj, rel, includeNoRel]);
+    const mappedRows = rows.map((row) => ({
+      ...row,
+      project: mapProjectForRelease(row.release, row.project),
+    }));
+
+    const headers = [
+      'project',
+      'release',
+      'confidence_pct',
+      'confidence_signals',
+      'confidence_driver',
+      'critical',
+      'high',
+      'medium',
+      'low',
+      'on_hold',
+      'qa_pass',
+      'qa_total',
+      'qa_status',
+      'qa_pct',
+      'top_blockers',
+      'decision_needed'
+    ];
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=release_health.csv'
+    );
+
+    res.write(headers.join(',') + '\n');
+    for (const row of mappedRows) {
+      const line = headers.map((h) => csvEscape(row[h])).join(',');
+      res.write(line + '\n');
+    }
+    res.end();
+  } catch (e) {
+    console.error('release-health CSV export error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---------- Last Sync Info ----------
+app.get('/api/last-sync-info', async (req, res) => {
+  try {
+    const r = await pool.query(
+      'SELECT MAX(synced_at) AS last_sync, COUNT(DISTINCT release)::int AS release_count FROM tfs_workitems_analytics WHERE is_deleted = FALSE'
+    );
+    const row = r.rows[0] || {};
+    const lastSync = row.last_sync;
+    const daysSince = lastSync ? Math.floor((Date.now() - new Date(lastSync).getTime()) / 86400000) : null;
+    
+    res.json({
+      ok: true,
+      lastSync,
+      daysSince,
+      releaseCount: row.release_count || 0,
+      isStale: daysSince !== null && daysSince > 7
+    });
+  } catch (e) {
+    console.error('last-sync-info error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---------- Critical Bugs Count ----------
+app.get('/api/critical-bugs', async (req, res) => {
+  const release = req.query.release ? String(req.query.release).trim() : null;
+  
+  try {
+    const where = ['type = \'Bug\'', 'severity = \'Critical\'', 'lower(state) NOT IN (\'done\',\'removed\')', 'is_deleted = FALSE'];
+    const params = [];
+    
+    if (release) {
+      params.push(release);
+      where.push(`release = $${params.length}`);
+    }
+    
+    const sql = `
+      SELECT
+        COUNT(*)::int AS critical_bugs_open,
+        jsonb_agg(jsonb_build_object(
+          'id', work_item_id,
+          'title', title,
+          'state', state,
+          'assignedTo', assigned_to,
+          'release', release
+        ) ORDER BY changed_date DESC) FILTER (WHERE true) AS top_items
+      FROM (
+        SELECT work_item_id, title, state, assigned_to, release, changed_date
+        FROM tfs_workitems_analytics
+        WHERE ${where.join(' AND ')}
+        ORDER BY changed_date DESC
+        LIMIT 10
+      ) sub
+    `;
+    
+    const r = await pool.query(sql, params);
+    const row = r.rows[0] || {};
+    
+    res.json({
+      ok: true,
+      release: release || 'all',
+      criticalBugsOpen: row.critical_bugs_open || 0,
+      topItems: row.top_items || []
+    });
+  } catch (e) {
+    console.error('critical-bugs error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // ---------- Static dashboard ----------
 app.use('/', express.static(path.join(__dirname, 'public')));
 
