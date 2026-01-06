@@ -726,13 +726,15 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
       [release]
     );
     const snapshotCount = snapshotCheck.rows[0]?.snapshot_count || 0;
-    
+
     const lastSyncCheck = await pool.query(
       'SELECT MAX(synced_at) AS last_sync FROM tfs_workitems_analytics WHERE release = $1',
       [release]
     );
     const lastSync = lastSyncCheck.rows[0]?.last_sync;
-    const daysSinceSync = lastSync ? Math.floor((Date.now() - new Date(lastSync).getTime()) / 86400000) : null;
+    const daysSinceSync = lastSync
+      ? Math.floor((Date.now() - new Date(lastSync).getTime()) / 86400000)
+      : null;
 
     // Fetch scope summary
     const scopeSql = `
@@ -779,8 +781,10 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
     const added = Number(scope.added_scope || 0);
     const removed = Number(scope.removed_scope || 0);
     const delivered = Number(scope.delivered_from_baseline || 0);
-    const scopeStability = baseline > 0 ? Math.round((1 - (added + removed) / baseline) * 100) : 0;
-    const predictability = baseline > 0 ? Math.round((delivered / baseline) * 100) : 0;
+    const scopeStability =
+      baseline > 0 ? Math.round((1 - (added + removed) / baseline) * 100) : 0;
+    const predictability =
+      baseline > 0 ? Math.round((delivered / baseline) * 100) : 0;
 
     // Fetch dependency risk
     const depSql = `
@@ -817,7 +821,7 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
     let qaTotal = null;
     let topBlockers = null;
     let confidenceDriver = null;
-    
+
     try {
       const healthR = await pool.query(healthSql, [release]);
       if (healthR.rows.length > 0) {
@@ -876,7 +880,10 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
     if (confidence !== null) scores.push(confidence);
     if (qaPct !== null) scores.push(qaPct);
     if (blockedPct !== null) scores.push(100 - blockedPct); // invert (lower blocked = better)
-    const overallScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+    const overallScore =
+      scores.length > 0
+        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+        : null;
 
     // Traffic light status
     const getStatus = (score) => {
@@ -887,9 +894,14 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
     };
 
     const warnings = [];
-    if (snapshotCount < 2) warnings.push('Not enough snapshot data (need at least 2 syncs for burnup)');
-    if (daysSinceSync !== null && daysSinceSync > 7) warnings.push(`Data is ${daysSinceSync} days old`);
-    if (baseline < 10) warnings.push('Sample size too small for reliable ETA (<10 items)');
+    if (snapshotCount < 2)
+      warnings.push(
+        'Not enough snapshot data (need at least 2 syncs for burnup)'
+      );
+    if (daysSinceSync !== null && daysSinceSync > 7)
+      warnings.push(`Data is ${daysSinceSync} days old`);
+    if (baseline < 10)
+      warnings.push('Sample size too small for reliable ETA (<10 items)');
 
     res.json({
       ok: true,
@@ -899,13 +911,28 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
       snapshotCount,
       warnings,
       metrics: {
-        scopeStability: { value: scopeStability, status: getStatus(scopeStability) },
-        predictability: { value: predictability, status: getStatus(predictability) },
-        confidence: { value: confidence, status: getStatus(confidence), driver: confidenceDriver },
-        qaPct: { value: qaPct, pass: qaPass, total: qaTotal, status: getStatus(qaPct) },
+        scopeStability: {
+          value: scopeStability,
+          status: getStatus(scopeStability),
+        },
+        predictability: {
+          value: predictability,
+          status: getStatus(predictability),
+        },
+        confidence: {
+          value: confidence,
+          status: getStatus(confidence),
+          driver: confidenceDriver,
+        },
+        qaPct: {
+          value: qaPct,
+          pass: qaPass,
+          total: qaTotal,
+          status: getStatus(qaPct),
+        },
         blockedPct: { value: blockedPct, status: getStatus(100 - blockedPct) },
         etaDays: { value: etaDays },
-        overallScore: { value: overallScore, status: getStatus(overallScore) }
+        overallScore: { value: overallScore, status: getStatus(overallScore) },
       },
       details: {
         baseline,
@@ -915,8 +942,8 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
         active,
         blocked,
         remaining,
-        topBlockers
-      }
+        topBlockers,
+      },
     });
   } catch (e) {
     console.error('release-readiness-scorecard error:', e);
@@ -934,7 +961,8 @@ app.get('/api/release-health/export.csv', async (req, res) => {
     if (!hasView) {
       return res.status(404).json({
         ok: false,
-        error: 'Release health view not configured. Create public.v_release_health to enable it.'
+        error:
+          'Release health view not configured. Create public.v_release_health to enable it.',
       });
     }
 
@@ -993,7 +1021,7 @@ app.get('/api/release-health/export.csv', async (req, res) => {
       'qa_status',
       'qa_pct',
       'top_blockers',
-      'decision_needed'
+      'decision_needed',
     ];
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -1022,14 +1050,16 @@ app.get('/api/last-sync-info', async (req, res) => {
     );
     const row = r.rows[0] || {};
     const lastSync = row.last_sync;
-    const daysSince = lastSync ? Math.floor((Date.now() - new Date(lastSync).getTime()) / 86400000) : null;
-    
+    const daysSince = lastSync
+      ? Math.floor((Date.now() - new Date(lastSync).getTime()) / 86400000)
+      : null;
+
     res.json({
       ok: true,
       lastSync,
       daysSince,
       releaseCount: row.release_count || 0,
-      isStale: daysSince !== null && daysSince > 7
+      isStale: daysSince !== null && daysSince > 7,
     });
   } catch (e) {
     console.error('last-sync-info error:', e);
@@ -1040,16 +1070,21 @@ app.get('/api/last-sync-info', async (req, res) => {
 // ---------- Critical Bugs Count ----------
 app.get('/api/critical-bugs', async (req, res) => {
   const release = req.query.release ? String(req.query.release).trim() : null;
-  
+
   try {
-    const where = ['type = \'Bug\'', 'severity = \'Critical\'', 'lower(state) NOT IN (\'done\',\'removed\')', 'is_deleted = FALSE'];
+    const where = [
+      "type = 'Bug'",
+      "severity = 'Critical'",
+      "lower(state) NOT IN ('done','removed')",
+      'is_deleted = FALSE',
+    ];
     const params = [];
-    
+
     if (release) {
       params.push(release);
       where.push(`release = $${params.length}`);
     }
-    
+
     const sql = `
       SELECT
         COUNT(*)::int AS critical_bugs_open,
@@ -1068,15 +1103,15 @@ app.get('/api/critical-bugs', async (req, res) => {
         LIMIT 10
       ) sub
     `;
-    
+
     const r = await pool.query(sql, params);
     const row = r.rows[0] || {};
-    
+
     res.json({
       ok: true,
       release: release || 'all',
       criticalBugsOpen: row.critical_bugs_open || 0,
-      topItems: row.top_items || []
+      topItems: row.top_items || [],
     });
   } catch (e) {
     console.error('critical-bugs error:', e);

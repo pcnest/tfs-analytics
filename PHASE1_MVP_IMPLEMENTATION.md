@@ -12,6 +12,7 @@
 **New Endpoint:** `GET /api/release-readiness-scorecard?release=X`
 
 **Features:**
+
 - Aggregates data from existing endpoints (scope, health, throughput, dependencies)
 - Computes 5 key metrics with traffic-light status (green/yellow/red):
   - **Scope Stability (%)** - measures scope churn
@@ -24,6 +25,7 @@
 - Data quality warnings (stale data, missing snapshots, small sample size)
 
 **Response Example:**
+
 ```json
 {
   "ok": true,
@@ -55,6 +57,7 @@
 ```
 
 **Usage:**
+
 ```bash
 curl "http://localhost:3000/api/release-readiness-scorecard?release=80.1.6"
 ```
@@ -66,17 +69,20 @@ curl "http://localhost:3000/api/release-readiness-scorecard?release=80.1.6"
 **New Endpoint:** `GET /api/release-health/export.csv?release=X&project=Y`
 
 **Features:**
+
 - Exports release health view data as CSV
 - Same filters as JSON endpoint (release, project, includeNoRelease)
 - Includes all metrics: confidence, severity breakdown, QA status, blockers
 - Proper CSV escaping for special characters
 
 **CSV Headers:**
+
 ```
 project,release,confidence_pct,confidence_signals,confidence_driver,critical,high,medium,low,on_hold,qa_pass,qa_total,qa_status,qa_pct,top_blockers,decision_needed
 ```
 
 **Usage:**
+
 ```bash
 # Export all releases
 curl "http://localhost:3000/api/release-health/export.csv" -o release_health.csv
@@ -86,6 +92,7 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 ```
 
 **UI Integration:**
+
 - Add "Export CSV" button next to Release Health card (TODO: needs UI button)
 
 ---
@@ -95,12 +102,14 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 **New Endpoint:** `GET /api/last-sync-info`
 
 **Features:**
+
 - Shows when data was last synced
 - Calculates days since last sync
 - Counts number of active releases
 - Flags stale data (>7 days = red, 3-7 days = yellow, <3 days = green)
 
 **Response Example:**
+
 ```json
 {
   "ok": true,
@@ -112,6 +121,7 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 ```
 
 **UI Changes:**
+
 - Added banner at top of dashboard with color-coded status
 - Green indicator: Data is fresh (<3 days)
 - Yellow indicator: Data is aging (3-7 days)
@@ -119,6 +129,7 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 - Shows exact sync timestamp and release count
 
 **Visual Example:**
+
 ```
 🟢 Last synced: 2026-01-06 10:30 UTC (0 days ago) • 5 releases • Data is up to date
 ```
@@ -130,12 +141,14 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 **New Endpoint:** `GET /api/critical-bugs?release=X`
 
 **Features:**
+
 - Counts open critical severity bugs
 - Filters by release (optional)
 - Returns top 10 critical bugs with details (ID, title, state, assignee)
 - Excludes soft-deleted items and Done/Removed states
 
 **Response Example:**
+
 ```json
 {
   "ok": true,
@@ -154,12 +167,14 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 ```
 
 **UI Changes:**
+
 - Added new card to dashboard showing critical bug count
 - Updates when release filter changes
 - Shows red 🔴 indicator for critical bugs
 - Displays release context (specific release or "All releases")
 
 **Visual Example:**
+
 ```
 ┌─────────────────────────┐
 │ 🔴 Critical Bugs Open   │
@@ -174,16 +189,19 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 ## Files Modified
 
 ### Backend (server.js)
+
 - **Lines added:** ~360 lines
 - **New endpoints:** 4 (scorecard, health CSV, sync info, critical bugs)
 - **No breaking changes** - all existing endpoints preserved
 
 ### Frontend (public/index.html)
+
 - **Lines added:** ~50 lines
 - **New elements:** Sync banner, critical bugs card, status indicators
 - **Styling:** Added traffic-light color scheme (green/yellow/red)
 
 ### Frontend (public/app.js)
+
 - **Lines added:** ~70 lines
 - **New functions:** `loadLastSyncInfo()`, `displaySyncBanner()`, `loadCriticalBugs()`, `displayCriticalBugs()`
 - **Modified:** Boot function to load new data on page load
@@ -194,11 +212,13 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 ## Testing Checklist
 
 ### ✅ Backend Validation
+
 - [x] Server starts without errors
 - [x] No syntax errors in JavaScript
 - [x] Dependencies installed (express, pg)
 
 ### 🔲 Manual Testing (requires live DB)
+
 - [ ] `/api/release-readiness-scorecard?release=X` returns valid JSON
 - [ ] `/api/release-health/export.csv` downloads CSV file
 - [ ] `/api/last-sync-info` shows sync timestamp
@@ -208,6 +228,7 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 - [ ] Critical bugs tile updates when release filter changes
 
 ### 🔲 Data Validation
+
 - [ ] Scorecard metrics match manual calculations
 - [ ] CSV export contains all expected columns
 - [ ] Last sync timestamp matches database `MAX(synced_at)`
@@ -218,6 +239,7 @@ curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o rel
 ## Usage Instructions
 
 ### Start Server (Local Development)
+
 ```powershell
 # Set environment variables
 $env:DATABASE_URL = "postgresql://user:pass@host:5432/dbname"
@@ -230,23 +252,27 @@ npm start
 ### Access New Endpoints
 
 **1. Release Readiness Scorecard:**
+
 ```bash
 # Get scorecard for specific release
 curl "http://localhost:3000/api/release-readiness-scorecard?release=80.1.6"
 ```
 
 **2. Export Release Health CSV:**
+
 ```bash
 # Download CSV
 curl "http://localhost:3000/api/release-health/export.csv?release=80.1.6" -o health.csv
 ```
 
 **3. Check Last Sync:**
+
 ```bash
 curl "http://localhost:3000/api/last-sync-info"
 ```
 
 **4. Get Critical Bugs:**
+
 ```bash
 # All releases
 curl "http://localhost:3000/api/critical-bugs"
@@ -256,9 +282,11 @@ curl "http://localhost:3000/api/critical-bugs?release=80.1.6"
 ```
 
 ### Dashboard
+
 Open browser: `http://localhost:3000`
 
 The dashboard now shows:
+
 - ✅ Last sync banner at top (color-coded freshness indicator)
 - ✅ Critical bugs tile (updates with release filter)
 - ✅ All existing features preserved
@@ -270,14 +298,17 @@ The dashboard now shows:
 **Estimated Time:** ~2 hours
 
 1. **Report #4: Quality Trends API** (~45 min)
+
    - Weekly bug metrics (found, closed, resolution time)
    - Bug reopen rate tracking
 
 2. **Report #2: Weekly Throughput API** (~45 min)
+
    - Velocity tracking (closed count, effort, cycle time)
    - Rolling averages for capacity planning
 
 3. **Quick Win #3: Top 5 Stale Items Widget** (~20 min)
+
    - Reuse `/api/release-aging` data
    - Show oldest items blocking progress
 
@@ -289,14 +320,17 @@ The dashboard now shows:
 ## Known Limitations
 
 1. **Release Health View Dependency:**
+
    - Scorecard's confidence metric requires `v_release_health` view
    - Falls back gracefully if view doesn't exist
 
 2. **Snapshot Requirement:**
+
    - Scorecard needs at least 2 snapshots for scope metrics
    - Shows warning if insufficient data
 
 3. **No UI Buttons Yet:**
+
    - CSV export endpoints work but need "Export" buttons in UI
    - Consider adding in Phase 2 or 3
 
