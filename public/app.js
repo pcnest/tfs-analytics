@@ -221,6 +221,454 @@ function displayStaleItems(data) {
   card.style.display = 'block';
 }
 
+// ---------- Readiness Scorecard Card ----------
+async function loadReadinessScorecard() {
+  const release = qs('release')?.value?.trim() || null;
+
+  const card = qs('readiness-scorecard');
+  const body = qs('readiness-scorecard-body');
+  if (!card || !body) return;
+
+  if (!release) {
+    card.style.display = 'none';
+    return;
+  }
+
+  try {
+    body.innerHTML = '<div class="muted">Loading...</div>';
+    card.style.display = 'block';
+
+    const r = await fetch(
+      `/api/release-readiness-scorecard?release=${encodeURIComponent(release)}`
+    );
+    const j = await r.json();
+
+    if (r.ok && j.ok) {
+      displayReadinessScorecard(j);
+    } else {
+      body.innerHTML = `<div class="muted">Error: ${
+        j.error || 'Failed to load'
+      }</div>`;
+    }
+  } catch (e) {
+    console.error('Failed to load readiness scorecard:', e);
+    body.innerHTML = '<div class="muted">Failed to load scorecard</div>';
+  }
+}
+
+function displayReadinessScorecard(data) {
+  const body = qs('readiness-scorecard-body');
+  if (!body) return;
+
+  const { metrics, warnings } = data;
+  const getStatusIcon = (status) => {
+    if (status === 'green') return '🟢';
+    if (status === 'yellow') return '🟡';
+    if (status === 'red') return '🔴';
+    return '⚪';
+  };
+
+  const warningsHtml =
+    warnings && warnings.length > 0
+      ? `<div style="margin-top:12px; padding:8px; background:#fff9e6; border-radius:6px; font-size:12px;">
+         <strong>⚠️ Warnings:</strong><br>${warnings
+           .map((w) => `• ${escapeHtml(w)}`)
+           .join('<br>')}
+       </div>`
+      : '';
+
+  body.innerHTML = `
+    <div class="metric-row">
+      <span class="metric-label">Overall Health Score</span>
+      <span class="metric-value">
+        <span class="score-badge ${metrics.overallScore?.status || 'yellow'}">
+          ${
+            metrics.overallScore?.value !== null
+              ? metrics.overallScore.value + '%'
+              : 'N/A'
+          }
+        </span>
+        ${getStatusIcon(metrics.overallScore?.status)}
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Scope Stability</span>
+      <span class="metric-value">
+        ${
+          metrics.scopeStability?.value !== null
+            ? metrics.scopeStability.value + '%'
+            : 'N/A'
+        }
+        ${getStatusIcon(metrics.scopeStability?.status)}
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Predictability</span>
+      <span class="metric-value">
+        ${
+          metrics.predictability?.value !== null
+            ? metrics.predictability.value + '%'
+            : 'N/A'
+        }
+        ${getStatusIcon(metrics.predictability?.status)}
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Confidence</span>
+      <span class="metric-value">
+        ${
+          metrics.confidence?.value !== null
+            ? metrics.confidence.value + '%'
+            : 'N/A'
+        }
+        ${getStatusIcon(metrics.confidence?.status)}
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">QA Pass Rate</span>
+      <span class="metric-value">
+        ${metrics.qaPct?.value !== null ? metrics.qaPct.value + '%' : 'N/A'}
+        ${
+          metrics.qaPct?.pass !== undefined
+            ? ` (${metrics.qaPct.pass}/${metrics.qaPct.total})`
+            : ''
+        }
+        ${getStatusIcon(metrics.qaPct?.status)}
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">Blocked Items</span>
+      <span class="metric-value">
+        ${
+          metrics.blockedPct?.value !== null
+            ? metrics.blockedPct.value + '%'
+            : 'N/A'
+        }
+        ${getStatusIcon(metrics.blockedPct?.status)}
+      </span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">ETA (days remaining)</span>
+      <span class="metric-value">
+        ${
+          metrics.etaDays?.value !== null
+            ? metrics.etaDays.value + ' days'
+            : 'N/A'
+        }
+      </span>
+    </div>
+    ${warningsHtml}
+  `;
+}
+
+// ---------- Quality Trends Chart ----------
+async function loadQualityTrends() {
+  const release = qs('release')?.value?.trim() || null;
+
+  const card = qs('quality-trends-card');
+  const body = qs('quality-trends-body');
+  if (!card || !body) return;
+
+  if (!release) {
+    card.style.display = 'none';
+    return;
+  }
+
+  try {
+    body.innerHTML = '<div class="muted">Loading...</div>';
+    card.style.display = 'block';
+
+    const r = await fetch(
+      `/api/quality-trends?release=${encodeURIComponent(release)}`
+    );
+    const j = await r.json();
+
+    if (r.ok && j.ok) {
+      displayQualityTrends(j);
+    } else {
+      body.innerHTML = `<div class="muted">Error: ${
+        j.error || 'Failed to load'
+      }</div>`;
+    }
+  } catch (e) {
+    console.error('Failed to load quality trends:', e);
+    body.innerHTML = '<div class="muted">Failed to load quality trends</div>';
+  }
+}
+
+function displayQualityTrends(data) {
+  const body = qs('quality-trends-body');
+  if (!body) return;
+
+  const { summary, weekly } = data;
+
+  if (!weekly || weekly.length === 0) {
+    body.innerHTML =
+      '<div class="muted">No bug data available for this release</div>';
+    return;
+  }
+
+  const summaryHtml = `
+    <div style="display:flex; gap:20px; margin-bottom:14px; flex-wrap:wrap;">
+      <div>
+        <div class="small muted">Critical Open</div>
+        <div style="font-size:20px; font-weight:700;">${
+          summary.criticalOpen || 0
+        }</div>
+      </div>
+      <div>
+        <div class="small muted">Reopen Rate</div>
+        <div style="font-size:20px; font-weight:700;">${
+          summary.reopenRatePct || 0
+        }%</div>
+      </div>
+      <div>
+        <div class="small muted">Total Closed</div>
+        <div style="font-size:20px; font-weight:700;">${
+          summary.totalClosed || 0
+        }</div>
+      </div>
+    </div>
+  `;
+
+  const chartSvg = buildLineChart(weekly, [
+    { key: 'bugs_found', label: 'Bugs Found', color: '#f44336' },
+    { key: 'bugs_closed', label: 'Bugs Closed', color: '#4caf50' },
+  ]);
+
+  body.innerHTML = summaryHtml + chartSvg;
+}
+
+// ---------- Throughput Chart ----------
+async function loadThroughputChart() {
+  const release = qs('release')?.value?.trim() || null;
+
+  const card = qs('throughput-card');
+  const body = qs('throughput-body');
+  if (!card || !body) return;
+
+  if (!release) {
+    card.style.display = 'none';
+    return;
+  }
+
+  try {
+    body.innerHTML = '<div class="muted">Loading...</div>';
+    card.style.display = 'block';
+
+    const r = await fetch(
+      `/api/weekly-throughput?release=${encodeURIComponent(release)}`
+    );
+    const j = await r.json();
+
+    if (r.ok && j.ok) {
+      displayThroughputChart(j);
+    } else {
+      body.innerHTML = `<div class="muted">Error: ${
+        j.error || 'Failed to load'
+      }</div>`;
+    }
+  } catch (e) {
+    console.error('Failed to load throughput:', e);
+    body.innerHTML = '<div class="muted">Failed to load throughput</div>';
+  }
+}
+
+function displayThroughputChart(data) {
+  const body = qs('throughput-body');
+  if (!body) return;
+
+  const { summary, weekly } = data;
+
+  if (!weekly || weekly.length === 0) {
+    body.innerHTML =
+      '<div class="muted">No throughput data available for this release</div>';
+    return;
+  }
+
+  const summaryHtml = `
+    <div style="display:flex; gap:20px; margin-bottom:14px; flex-wrap:wrap;">
+      <div>
+        <div class="small muted">Avg/Week</div>
+        <div style="font-size:20px; font-weight:700;">${
+          summary.avgClosedPerWeek || 0
+        }</div>
+      </div>
+      <div>
+        <div class="small muted">Last Week</div>
+        <div style="font-size:20px; font-weight:700;">${
+          summary.lastWeekClosed || 0
+        }</div>
+      </div>
+      <div>
+        <div class="small muted">Total Closed</div>
+        <div style="font-size:20px; font-weight:700;">${
+          summary.totalClosed || 0
+        }</div>
+      </div>
+      <div>
+        <div class="small muted">Weeks Tracked</div>
+        <div style="font-size:20px; font-weight:700;">${
+          summary.weeksTracked || 0
+        }</div>
+      </div>
+    </div>
+  `;
+
+  const chartSvg = buildBarChart(
+    weekly,
+    'closed_count',
+    'Closed Items',
+    '#2196f3'
+  );
+
+  body.innerHTML = summaryHtml + chartSvg;
+}
+
+// ---------- Simple Line Chart Builder ----------
+function buildLineChart(data, series) {
+  const W = 720,
+    H = 200;
+  const padL = 50,
+    padR = 20,
+    padT = 20,
+    padB = 40;
+
+  if (data.length === 0) return '';
+
+  // Find max Y value across all series
+  let maxY = 0;
+  series.forEach((s) => {
+    const vals = data.map((d) => Number(d[s.key] || 0));
+    maxY = Math.max(maxY, ...vals);
+  });
+  maxY = Math.max(1, maxY);
+
+  const xFor = (i) =>
+    padL + ((W - padL - padR) * i) / Math.max(1, data.length - 1);
+  const yFor = (v) => padT + (H - padT - padB) * (1 - v / maxY);
+
+  // Grid lines
+  const gridLines = [0, maxY / 2, maxY]
+    .map((v) => {
+      const y = yFor(v);
+      return `<line x1="${padL}" y1="${y}" x2="${
+        W - padR
+      }" y2="${y}" stroke="#e0e0e0" stroke-width="1"/>
+            <text x="${padL - 5}" y="${
+        y + 4
+      }" text-anchor="end" font-size="11" fill="#666">${Math.round(v)}</text>`;
+    })
+    .join('');
+
+  // Series lines
+  const seriesLines = series
+    .map((s) => {
+      const points = data
+        .map((d, i) => `${xFor(i)},${yFor(Number(d[s.key] || 0))}`)
+        .join(' ');
+      return `<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2"/>`;
+    })
+    .join('');
+
+  // X-axis labels (show every other week)
+  const xLabels = data
+    .map((d, i) => {
+      if (i % 2 !== 0 && i !== data.length - 1) return '';
+      const week = d.week ? new Date(d.week).toISOString().slice(5, 10) : '';
+      return `<text x="${xFor(i)}" y="${
+        H - padB + 20
+      }" text-anchor="middle" font-size="10" fill="#666">${week}</text>`;
+    })
+    .join('');
+
+  // Legend
+  const legendItems = series
+    .map((s, i) => {
+      const x = W - padR - 150 + i * 80;
+      return `<rect x="${x}" y="10" width="12" height="12" fill="${s.color}"/>
+            <text x="${x + 16}" y="20" font-size="11" fill="#666">${
+        s.label
+      }</text>`;
+    })
+    .join('');
+
+  return `
+    <div class="chart-container">
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="200" role="img">
+        ${gridLines}
+        ${seriesLines}
+        ${xLabels}
+        ${legendItems}
+      </svg>
+    </div>
+  `;
+}
+
+// ---------- Simple Bar Chart Builder ----------
+function buildBarChart(data, valueKey, label, color) {
+  const W = 720,
+    H = 200;
+  const padL = 50,
+    padR = 20,
+    padT = 20,
+    padB = 40;
+
+  if (data.length === 0) return '';
+
+  const values = data.map((d) => Number(d[valueKey] || 0));
+  const maxY = Math.max(1, ...values);
+
+  const barWidth = ((W - padL - padR) / data.length) * 0.7;
+  const xFor = (i) => padL + ((W - padL - padR) * (i + 0.5)) / data.length;
+  const yFor = (v) => padT + (H - padT - padB) * (1 - v / maxY);
+
+  // Grid lines
+  const gridLines = [0, maxY / 2, maxY]
+    .map((v) => {
+      const y = yFor(v);
+      return `<line x1="${padL}" y1="${y}" x2="${
+        W - padR
+      }" y2="${y}" stroke="#e0e0e0" stroke-width="1"/>
+            <text x="${padL - 5}" y="${
+        y + 4
+      }" text-anchor="end" font-size="11" fill="#666">${Math.round(v)}</text>`;
+    })
+    .join('');
+
+  // Bars
+  const bars = data
+    .map((d, i) => {
+      const val = Number(d[valueKey] || 0);
+      const x = xFor(i) - barWidth / 2;
+      const y = yFor(val);
+      const h = H - padB - y;
+      return `<rect x="${x}" y="${y}" width="${barWidth}" height="${h}" fill="${color}" opacity="0.8"/>`;
+    })
+    .join('');
+
+  // X-axis labels
+  const xLabels = data
+    .map((d, i) => {
+      if (i % 2 !== 0 && i !== data.length - 1) return '';
+      const week = d.week ? new Date(d.week).toISOString().slice(5, 10) : '';
+      return `<text x="${xFor(i)}" y="${
+        H - padB + 20
+      }" text-anchor="middle" font-size="10" fill="#666">${week}</text>`;
+    })
+    .join('');
+
+  return `
+    <div class="chart-container">
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="200" role="img">
+        ${gridLines}
+        ${bars}
+        ${xLabels}
+      </svg>
+    </div>
+  `;
+}
+
 function qs(id) {
   return document.getElementById(id);
 }
@@ -1005,6 +1453,9 @@ qs('btnLoad').addEventListener('click', async () => {
   load();
   loadCriticalBugs();
   loadStaleItems();
+  loadReadinessScorecard();
+  loadQualityTrends();
+  loadThroughputChart();
   loadReleaseHealth();
   loadReleaseProgress(qs('release')?.value);
   loadReleaseInsights(qs('release')?.value);
@@ -1042,6 +1493,9 @@ qs('next').addEventListener('click', () => {
   if (hasParams) {
     loadCriticalBugs();
     loadStaleItems();
+    loadReadinessScorecard();
+    loadQualityTrends();
+    loadThroughputChart();
     loadReleaseHealth();
     loadReleaseProgress(qs('release')?.value);
     loadReleaseInsights(qs('release')?.value);

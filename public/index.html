@@ -261,6 +261,59 @@
     .status-indicator.red {
       background: #f44336;
     }
+
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .metric-row:last-child {
+      border-bottom: none;
+    }
+
+    .metric-label {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .metric-value {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .score-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .score-badge.green {
+      background: #e7f5e7;
+      color: #2e7d32;
+    }
+
+    .score-badge.yellow {
+      background: #fff9e6;
+      color: #e65100;
+    }
+
+    .score-badge.red {
+      background: #fdecea;
+      color: #c62828;
+    }
+
+    .chart-container {
+      margin-top: 10px;
+      overflow-x: auto;
+    }
   </style>
 </head>
 
@@ -361,6 +414,23 @@
       <div id="release-cycle-body" style="margin-top:10px;">Enter a release and click Load.</div>
     </div>
 
+    <div id="readiness-scorecard" class="card full" style="display:none;">
+      <div class="k">Executive Report</div>
+      <div class="v" style="font-size:16px; font-weight:700;">📊 Release Readiness Scorecard</div>
+      <div id="readiness-scorecard-body" style="margin-top:10px;">Loading...</div>
+    </div>
+
+    <div id="quality-trends-card" class="card full" style="display:none;">
+      <div class="k">Quality Metrics</div>
+      <div class="v" style="font-size:16px; font-weight:700;">🐛 Quality Trends (Last 12 Weeks)</div>
+      <div id="quality-trends-body" style="margin-top:10px;">Loading...</div>
+    </div>
+
+    <div id="throughput-card" class="card full" style="display:none;">
+      <div class="k">Velocity Metrics</div>
+      <div class="v" style="font-size:16px; font-weight:700;">📈 Weekly Throughput (Last 12 Weeks)</div>
+      <div id="throughput-body" style="margin-top:10px;">Loading...</div>
+    </div>
 
   </div>
   <div class="small muted" style="margin-top:6px;">
