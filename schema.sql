@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tfs_workitems_analytics (
   created_date        TIMESTAMPTZ,
   changed_date        TIMESTAMPTZ,
   state_change_date   TIMESTAMPTZ,
+  closed_date         TIMESTAMPTZ,
 
   severity            TEXT,
   effort              DOUBLE PRECISION,
@@ -52,3 +53,42 @@ CREATE INDEX IF NOT EXISTS idx_tfs_analytics_state        ON tfs_workitems_analy
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_feature_id   ON tfs_workitems_analytics (feature_id);
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_changed_date ON tfs_workitems_analytics (changed_date);
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_synced_at    ON tfs_workitems_analytics (synced_at);
+
+-- ============================================
+-- Sync Runs Tracking
+-- ============================================
+CREATE TABLE IF NOT EXISTS tfs_sync_runs (
+  run_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  source      TEXT,
+  item_count  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_tfs_sync_runs_run_at ON tfs_sync_runs(run_at DESC);
+
+-- ============================================
+-- Snapshots for Burnup/Trends
+-- ============================================
+CREATE TABLE IF NOT EXISTS tfs_workitems_analytics_snapshots (
+  run_id              UUID NOT NULL,
+  snapshot_at         TIMESTAMPTZ NOT NULL,
+  work_item_id        INTEGER NOT NULL,
+  release             TEXT,
+  type                TEXT,
+  state               TEXT,
+  severity            TEXT,
+  effort              DOUBLE PRECISION,
+  dep_count           INTEGER NOT NULL DEFAULT 0,
+  open_dep_count      INTEGER,
+  related_link_count  INTEGER NOT NULL DEFAULT 0,
+  open_related_count  INTEGER,
+  closed_date         TIMESTAMPTZ,
+  
+  CONSTRAINT tfs_workitems_analytics_snapshots_run_id_fkey 
+    FOREIGN KEY (run_id) REFERENCES tfs_sync_runs(run_id) ON DELETE CASCADE,
+  CONSTRAINT tfs_workitems_analytics_snapshots_pkey 
+    PRIMARY KEY (run_id, work_item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_snap_release_snapshot ON tfs_workitems_analytics_snapshots(release, snapshot_at);
+CREATE UNIQUE INDEX IF NOT EXISTS tfs_workitems_analytics_snapshots_pkey ON tfs_workitems_analytics_snapshots(run_id, work_item_id);

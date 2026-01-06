@@ -5,6 +5,15 @@ const { Pool } = require('pg');
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
+// Simple in-memory rate limiter for ingest endpoint
+const ingestRateLimit = new Map(); // ip -> { count, resetAt }
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of ingestRateLimit.entries()) {
+    if (data.resetAt < now) ingestRateLimit.delete(ip);
+  }
+}, 60000); // cleanup every minute
+
 // ---------- Config ----------
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -16,10 +25,34 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
+if (!SYNC_API_KEY || SYNC_API_KEY.trim() === '') {
+  console.error(
+    'ERROR: SYNC_API_KEY env var not set or empty. Set a strong random string.'
+  );
+  process.exit(1);
+}
+
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl:
     process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
+  max: 3, // Neon free tier: conservative
+  connectionTimeoutMillis: 5000, // fail fast if no connection available
+  idleTimeoutMillis: 30000, // release idle connections quickly
+  statement_timeout: 25000, // prevent long queries (Render timeout is 30s)
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, closing pool...');
+  await pool.end();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, closing pool...');
+  await pool.end();
+  process.exit(0);
 });
 
 // ---------- Health ----------
@@ -134,9 +167,17 @@ app.get('/api/release-burnup', async (req, res) => {
   const allowed = new Set(['hour', 'day', 'week']);
   const unit = allowed.has(bucket) ? bucket : 'day';
 
+  // Build query safely without string interpolation in SQL
+  let truncFunc = "date_trunc('day', snapshot_at)";
+  if (unit === 'hour') {
+    truncFunc = "date_trunc('hour', snapshot_at)";
+  } else if (unit === 'week') {
+    truncFunc = "date_trunc('week', snapshot_at)";
+  }
+
   const sql = `
     SELECT
-      date_trunc('${unit}', snapshot_at) AS t,
+      ${truncFunc} AS t,
       count(*)::int AS total_scope,
       count(*) FILTER (WHERE state = 'Done')::int AS done_scope
     FROM public.tfs_workitems_analytics_snapshots
@@ -907,6 +948,26 @@ function buildSnapshotInsert(runId, snapshotAt, rows) {
 
 // ---------- Ingest ----------
 app.post('/api/tfs-weekly-sync', async (req, res) => {
+  // Rate limit: 5 requests per minute per IP
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const now = Date.now();
+  const limit = ingestRateLimit.get(ip);
+
+  if (limit) {
+    if (limit.resetAt > now) {
+      if (limit.count >= 5) {
+        return res
+          .status(429)
+          .json({ error: 'Too many sync requests, please slow down.' });
+      }
+      limit.count++;
+    } else {
+      ingestRateLimit.set(ip, { count: 1, resetAt: now + 60000 });
+    }
+  } else {
+    ingestRateLimit.set(ip, { count: 1, resetAt: now + 60000 });
+  }
+
   if (!requireApiKey(req, res)) return;
 
   const { source, syncedAtUtc, rows } = req.body || {};

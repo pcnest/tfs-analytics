@@ -144,7 +144,7 @@ function Get-TfsStatesOnly {
 }
 
 function Send-Ingest {
-  param([object[]]$Rows)
+  param([object[]]$Rows, [int]$MaxRetries = 3)
   $payloadObj = @{
     source = "tfs-weekly-sync"
     rows   = $Rows
@@ -159,7 +159,22 @@ function Send-Ingest {
     "x-api-key"    = $SyncKey
   }
 
-  Invoke-RestMethod -Method Post -Uri $IngestUrl -Headers $headers -Body $payload
+  $attempt = 0
+  while ($attempt -lt $MaxRetries) {
+    try {
+      $resp = Invoke-RestMethod -Method Post -Uri $IngestUrl -Headers $headers -Body $payload -TimeoutSec 60
+      return $resp
+    }
+    catch {
+      $attempt++
+      if ($attempt -ge $MaxRetries) {
+        Write-Error "Ingest failed after $MaxRetries attempts: $($_.Exception.Message)"
+        throw
+      }
+      Write-Warning "Ingest failed (attempt $attempt/$MaxRetries): $($_.Exception.Message). Retrying in 5s..."
+      Start-Sleep -Seconds 5
+    }
+  }
 }
 
 function Get-ExtractWorkItemIdFromUrl {
