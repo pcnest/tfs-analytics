@@ -359,6 +359,10 @@ foreach ($wi in $items) {
     $titleSafe = $titleRaw -replace '"', "'"
     # Replace Unicode curly quotes: " (U+201C) and " (U+201D)
     $titleSafe = $titleSafe -replace '[\u201C\u201D]', "'"
+    # Normalize Unicode dashes (en-dash, em-dash) to regular hyphen
+    $titleSafe = $titleSafe -replace '[\u2013\u2014]', '-'
+    # Normalize Unicode apostrophes to regular apostrophe
+    $titleSafe = $titleSafe -replace '[\u2018\u2019]', "'"
   }
   else {
     $titleSafe = $null
@@ -366,20 +370,20 @@ foreach ($wi in $items) {
   
   $reasonRaw = $fields.'System.Reason'
   if ($reasonRaw) {
-    $reasonSafe = $reasonRaw -replace '"', "'" -replace '[\u201C\u201D]', "'"
+    $reasonSafe = $reasonRaw -replace '"', "'" -replace '[\u201C\u201D]', "'" -replace '[\u2013\u2014]', '-' -replace '[\u2018\u2019]', "'"
   }
   else {
     $reasonSafe = $null
   }
   $assignedToName = Get-Name -v $assignedToRaw
-  $assignedToSafe = if ($assignedToName) { $assignedToName -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
+  $assignedToSafe = if ($assignedToName) { $assignedToName -replace '"', "'" -replace '[\u201C\u201D]', "'" -replace '[\u2013\u2014]', '-' -replace '[\u2018\u2019]', "'" } else { $null }
   $createdByName = Get-Name -v $createdByRaw
-  $createdBySafe = if ($createdByName) { $createdByName -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
+  $createdBySafe = if ($createdByName) { $createdByName -replace '"', "'" -replace '[\u201C\u201D]', "'" -replace '[\u2013\u2014]', '-' -replace '[\u2018\u2019]', "'" } else { $null }
   $changedByName = Get-Name -v $changedByRaw
-  $changedBySafe = if ($changedByName) { $changedByName -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
-  $tagsSafe = if ($tags) { $tags -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
-  $areaPathSafe = if ($fields.'System.AreaPath') { $fields.'System.AreaPath' -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
-  $iterationPathSafe = if ($fields.'System.IterationPath') { $fields.'System.IterationPath' -replace '"', "'" -replace '[\u201C\u201D]', "'" } else { $null }
+  $changedBySafe = if ($changedByName) { $changedByName -replace '"', "'" -replace '[\u201C\u201D]', "'" -replace '[\u2013\u2014]', '-' -replace '[\u2018\u2019]', "'" } else { $null }
+  $tagsSafe = if ($tags) { $tags -replace '"', "'" -replace '[\u201C\u201D]', "'" -replace '[\u2013\u2014]', '-' -replace '[\u2018\u2019]', "'" } else { $null }
+  $areaPathSafe = if ($fields.'System.AreaPath') { $fields.'System.AreaPath' -replace '"', "'" -replace '[\u201C\u201D]', "'" -replace '[\u2013\u2014]', '-' -replace '[\u2018\u2019]', "'" } else { $null }
+  $iterationPathSafe = if ($fields.'System.IterationPath') { $fields.'System.IterationPath' -replace '"', "'" -replace '[\u201C\u201D]', "'" -replace '[\u2013\u2014]', '-' -replace '[\u2018\u2019]', "'" } else { $null }
 
   $obj = [PSCustomObject]@{
     workItemId         = [int]$wi.id
@@ -491,7 +495,7 @@ if ($featureIds.Count -gt 0) {
     # Sanitize both regular and Unicode curly quotes in feature titles
     $featureTitle = $f.fields.'System.Title'
     if ($featureTitle) { 
-      $featureTitle = $featureTitle -replace '"', "'" -replace '[\u201C\u201D]', "'" 
+      $featureTitle = $featureTitle -replace '"', "'" -replace '[\u201C\u201D]', "'" -replace '[\u2013\u2014]', '-' -replace '[\u2018\u2019]', "'"
     }
     $featureLookup[$fid] = $featureTitle
   }

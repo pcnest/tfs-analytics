@@ -133,7 +133,17 @@ foreach ($tfsItem in $tfsItems) {
   }
   
   # Compare key fields
+  # Apply same sanitization as sync script to normalize for comparison
   $tfsTitle = $tfsItem.fields.'System.Title'
+  if ($tfsTitle) {
+    # Replace regular ASCII quotes and Unicode curly quotes with single quotes
+    $tfsTitle = $tfsTitle -replace '"', "'" -replace '[\u201C\u201D]', "'"
+    # Normalize Unicode dashes to regular hyphen
+    $tfsTitle = $tfsTitle -replace '[\u2013\u2014]', '-'
+    # Normalize Unicode apostrophes to regular apostrophe
+    $tfsTitle = $tfsTitle -replace '[\u2018\u2019]', "'"
+  }
+  
   $tfsState = $tfsItem.fields.'System.State'
   $tfsType = $tfsItem.fields.'System.WorkItemType'
   
