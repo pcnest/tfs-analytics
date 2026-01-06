@@ -1119,6 +1119,425 @@ app.get('/api/critical-bugs', async (req, res) => {
   }
 });
 
+// ---------- CSV Exports for Reports ----------
+app.get('/api/quality-trends/export.csv', async (req, res) => {
+  const release = req.query.release ? String(req.query.release).trim() : null;
+  if (!release) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'release parameter required' });
+  }
+
+  try {
+    // Reuse the quality-trends logic
+    const fromDate = req.query.fromDate
+      ? String(req.query.fromDate).trim()
+      : null;
+    const toDate = req.query.toDate ? String(req.query.toDate).trim() : null;
+
+    const defaultFromDate = new Date();
+    defaultFromDate.setDate(defaultFromDate.getDate() - 84);
+    const from = fromDate ? new Date(fromDate) : defaultFromDate;
+    const to = toDate ? new Date(toDate) : new Date();
+
+    const sql = `
+      SELECT
+        date_trunc('week', created_date)::date AS week,
+        COUNT(*) FILTER (WHERE created_date IS NOT NULL)::int AS bugs_found,
+        COUNT(*) FILTER (WHERE lower(state) = 'done')::int AS bugs_closed,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (COALESCE(closed_date, state_change_date) - created_date))/86400
+        ) FILTER (WHERE lower(state) = 'done')::int AS median_resolution_days
+      FROM tfs_workitems_analytics
+      WHERE release = $1
+        AND type = 'Bug'
+        AND created_date BETWEEN $2 AND $3
+        AND is_deleted = FALSE
+      GROUP BY 1
+      ORDER BY 1
+    `;
+
+    const r = await pool.query(sql, [release, from, to]);
+    const headers = [
+      'week',
+      'bugs_found',
+      'bugs_closed',
+      'median_resolution_days',
+    ];
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=quality_trends_${release}.csv`
+    );
+
+    res.write(headers.join(',') + '\n');
+    for (const row of r.rows) {
+      const line = headers.map((h) => csvEscape(row[h])).join(',');
+      res.write(line + '\n');
+    }
+    res.end();
+  } catch (e) {
+    console.error('quality-trends CSV export error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+app.get('/api/weekly-throughput/export.csv', async (req, res) => {
+  const release = req.query.release ? String(req.query.release).trim() : null;
+  if (!release) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'release parameter required' });
+  }
+
+  try {
+    const fromDate = req.query.fromDate
+      ? String(req.query.fromDate).trim()
+      : null;
+    const toDate = req.query.toDate ? String(req.query.toDate).trim() : null;
+
+    const defaultFromDate = new Date();
+    defaultFromDate.setDate(defaultFromDate.getDate() - 84);
+    const from = fromDate ? new Date(fromDate) : defaultFromDate;
+    const to = toDate ? new Date(toDate) : new Date();
+
+    const sql = `
+      SELECT
+        date_trunc('week', COALESCE(closed_date, state_change_date))::date AS week,
+        COUNT(*)::int AS closed_count,
+        COALESCE(SUM(effort), 0)::numeric(10,2) AS closed_effort,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (COALESCE(closed_date, state_change_date) - created_date))/86400
+        )::int AS median_cycle_days
+      FROM tfs_workitems_analytics
+      WHERE release = $1
+        AND COALESCE(closed_date, state_change_date) BETWEEN $2 AND $3
+        AND lower(state) = 'done'
+        AND is_deleted = FALSE
+      GROUP BY 1
+      ORDER BY 1
+    `;
+
+    const r = await pool.query(sql, [release, from, to]);
+    const headers = [
+      'week',
+      'closed_count',
+      'closed_effort',
+      'median_cycle_days',
+    ];
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=weekly_throughput_${release}.csv`
+    );
+
+    res.write(headers.join(',') + '\n');
+    for (const row of r.rows) {
+      const line = headers.map((h) => csvEscape(row[h])).join(',');
+      res.write(line + '\n');
+    }
+    res.end();
+  } catch (e) {
+    console.error('weekly-throughput CSV export error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---------- Quality Trends Report ----------
+app.get('/api/quality-trends', async (req, res) => {
+  const release = req.query.release ? String(req.query.release).trim() : null;
+  const fromDate = req.query.fromDate
+    ? String(req.query.fromDate).trim()
+    : null;
+  const toDate = req.query.toDate ? String(req.query.toDate).trim() : null;
+  const severity = req.query.severity
+    ? String(req.query.severity).trim()
+    : null;
+
+  if (!release) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'release parameter required' });
+  }
+
+  // Default to last 12 weeks if no date range specified
+  const defaultFromDate = new Date();
+  defaultFromDate.setDate(defaultFromDate.getDate() - 84); // 12 weeks
+  const from = fromDate ? new Date(fromDate) : defaultFromDate;
+  const to = toDate ? new Date(toDate) : new Date();
+
+  try {
+    // Weekly bug creation and closure
+    const weeklyBugsSql = `
+      WITH weekly_created AS (
+        SELECT
+          date_trunc('week', created_date) AS week,
+          COUNT(*)::int AS bugs_found
+        FROM tfs_workitems_analytics
+        WHERE release = $1
+          AND type = 'Bug'
+          AND created_date BETWEEN $2 AND $3
+          AND is_deleted = FALSE
+          ${severity ? 'AND severity = $6' : ''}
+        GROUP BY 1
+      ),
+      weekly_closed AS (
+        SELECT
+          date_trunc('week', COALESCE(closed_date, state_change_date)) AS week,
+          COUNT(*)::int AS bugs_closed,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (
+            ORDER BY EXTRACT(EPOCH FROM (COALESCE(closed_date, state_change_date) - created_date))/86400
+          )::int AS median_resolution_days
+        FROM tfs_workitems_analytics
+        WHERE release = $1
+          AND type = 'Bug'
+          AND COALESCE(closed_date, state_change_date) BETWEEN $2 AND $3
+          AND lower(state) = 'done'
+          AND is_deleted = FALSE
+          ${severity ? 'AND severity = $6' : ''}
+        GROUP BY 1
+      ),
+      rework AS (
+        SELECT
+          date_trunc('week', snapshot_at) AS week,
+          COUNT(DISTINCT work_item_id)::int AS reopened_bugs
+        FROM (
+          SELECT
+            work_item_id,
+            snapshot_at,
+            state,
+            LAG(state) OVER (PARTITION BY work_item_id ORDER BY snapshot_at) AS prev_state
+          FROM tfs_workitems_analytics_snapshots
+          WHERE release = $1
+            AND type = 'Bug'
+            AND snapshot_at BETWEEN $2 AND $3
+            ${severity ? 'AND severity = $6' : ''}
+        ) sub
+        WHERE state IN ('Re-opened', 'Active', 'In Development')
+          AND prev_state IN ('Resolved', 'Done')
+        GROUP BY 1
+      )
+      SELECT
+        COALESCE(c.week, cl.week, r.week) AS week,
+        COALESCE(c.bugs_found, 0) AS bugs_found,
+        COALESCE(cl.bugs_closed, 0) AS bugs_closed,
+        cl.median_resolution_days,
+        COALESCE(r.reopened_bugs, 0) AS reopened_bugs,
+        COALESCE(c.bugs_found, 0) - COALESCE(cl.bugs_closed, 0) AS net_change
+      FROM weekly_created c
+      FULL OUTER JOIN weekly_closed cl USING(week)
+      FULL OUTER JOIN rework r USING(week)
+      ORDER BY week
+    `;
+
+    const params = severity
+      ? [release, from, to, release, from, to, severity]
+      : [release, from, to, release, from, to];
+
+    const weeklyR = await pool.query(weeklyBugsSql, params);
+
+    // Current critical bugs open
+    const criticalSql = `
+      SELECT COUNT(*)::int AS critical_open
+      FROM tfs_workitems_analytics
+      WHERE release = $1
+        AND type = 'Bug'
+        AND severity = 'Critical'
+        AND lower(state) NOT IN ('done', 'removed')
+        AND is_deleted = FALSE
+    `;
+    const criticalR = await pool.query(criticalSql, [release]);
+
+    // Calculate reopen rate
+    const reopenRateSql = `
+      WITH closed_bugs AS (
+        SELECT work_item_id
+        FROM tfs_workitems_analytics
+        WHERE release = $1
+          AND type = 'Bug'
+          AND COALESCE(closed_date, state_change_date) BETWEEN $2 AND $3
+          AND lower(state) = 'done'
+          AND is_deleted = FALSE
+      ),
+      reopened AS (
+        SELECT DISTINCT work_item_id
+        FROM tfs_workitems_analytics_snapshots
+        WHERE release = $1
+          AND type = 'Bug'
+          AND work_item_id IN (SELECT work_item_id FROM closed_bugs)
+          AND snapshot_at > $2
+          AND state IN ('Re-opened', 'Active')
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM closed_bugs) AS total_closed,
+        (SELECT COUNT(*)::int FROM reopened) AS total_reopened
+    `;
+    const reopenR = await pool.query(reopenRateSql, [release, from, to]);
+    const reopenData = reopenR.rows[0] || {};
+    const totalClosed = Number(reopenData.total_closed || 0);
+    const totalReopened = Number(reopenData.total_reopened || 0);
+    const reopenRatePct =
+      totalClosed > 0 ? Math.round((totalReopened / totalClosed) * 100) : 0;
+
+    res.json({
+      ok: true,
+      release,
+      fromDate: from.toISOString(),
+      toDate: to.toISOString(),
+      severity: severity || 'all',
+      summary: {
+        criticalOpen: criticalR.rows[0]?.critical_open || 0,
+        reopenRatePct,
+        totalClosed,
+        totalReopened,
+      },
+      weekly: weeklyR.rows,
+    });
+  } catch (e) {
+    console.error('quality-trends error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---------- Weekly Throughput Report ----------
+app.get('/api/weekly-throughput', async (req, res) => {
+  const release = req.query.release ? String(req.query.release).trim() : null;
+  const fromDate = req.query.fromDate
+    ? String(req.query.fromDate).trim()
+    : null;
+  const toDate = req.query.toDate ? String(req.query.toDate).trim() : null;
+  const type = req.query.type ? String(req.query.type).trim() : null;
+
+  if (!release) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'release parameter required' });
+  }
+
+  // Default to last 12 weeks
+  const defaultFromDate = new Date();
+  defaultFromDate.setDate(defaultFromDate.getDate() - 84);
+  const from = fromDate ? new Date(fromDate) : defaultFromDate;
+  const to = toDate ? new Date(toDate) : new Date();
+
+  try {
+    const sql = `
+      WITH weekly_closed AS (
+        SELECT
+          date_trunc('week', COALESCE(closed_date, state_change_date)) AS week,
+          COUNT(*)::int AS closed_count,
+          COALESCE(SUM(effort), 0)::numeric(10,2) AS closed_effort,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (
+            ORDER BY EXTRACT(EPOCH FROM (COALESCE(closed_date, state_change_date) - created_date))/86400
+          )::int AS median_cycle_days
+        FROM tfs_workitems_analytics
+        WHERE release = $1
+          AND COALESCE(closed_date, state_change_date) BETWEEN $2 AND $3
+          AND lower(state) = 'done'
+          AND is_deleted = FALSE
+          ${type ? 'AND type = $4' : ''}
+        GROUP BY 1
+      ),
+      rework AS (
+        SELECT
+          date_trunc('week', snapshot_at) AS week,
+          COUNT(DISTINCT work_item_id)::int AS rework_count
+        FROM (
+          SELECT
+            work_item_id,
+            snapshot_at,
+            type,
+            state,
+            LAG(state) OVER (PARTITION BY work_item_id ORDER BY snapshot_at) AS prev_state
+          FROM tfs_workitems_analytics_snapshots
+          WHERE release = $1
+            AND snapshot_at BETWEEN $2 AND $3
+            ${type ? 'AND type = $4' : ''}
+        ) sub
+        WHERE (
+          (type = 'Bug' AND state = 'Re-opened' AND prev_state IN ('Resolved', 'Done'))
+          OR (type != 'Bug' AND state = 'In Development' AND prev_state IN ('Resolved', 'QA Testing', 'Done'))
+        )
+        GROUP BY 1
+      ),
+      scope_changes AS (
+        SELECT
+          date_trunc('week', snapshot_at) AS week,
+          COUNT(DISTINCT CASE WHEN is_new THEN work_item_id END)::int AS scope_added
+        FROM (
+          SELECT
+            work_item_id,
+            snapshot_at,
+            ROW_NUMBER() OVER (PARTITION BY work_item_id ORDER BY snapshot_at) AS rn
+          FROM tfs_workitems_analytics_snapshots
+          WHERE release = $1
+            AND snapshot_at BETWEEN $2 AND $3
+            ${type ? 'AND type = $4' : ''}
+        ) sub
+        CROSS JOIN LATERAL (
+          SELECT (rn = 1) AS is_new
+        ) flags
+        WHERE is_new
+        GROUP BY 1
+      )
+      SELECT
+        w.week,
+        w.closed_count,
+        w.closed_effort,
+        w.median_cycle_days,
+        COALESCE(r.rework_count, 0) AS rework_count,
+        COALESCE(s.scope_added, 0) AS scope_added,
+        AVG(w.closed_count) OVER (
+          ORDER BY w.week
+          ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        )::numeric(10,1) AS rolling_avg_3week
+      FROM weekly_closed w
+      LEFT JOIN rework r USING(week)
+      LEFT JOIN scope_changes s USING(week)
+      ORDER BY w.week
+    `;
+
+    const params = type ? [release, from, to, type] : [release, from, to];
+    const r = await pool.query(sql, params);
+
+    // Calculate summary metrics
+    const rows = r.rows || [];
+    const totalClosed = rows.reduce(
+      (sum, row) => sum + Number(row.closed_count || 0),
+      0
+    );
+    const totalEffort = rows.reduce(
+      (sum, row) => sum + Number(row.closed_effort || 0),
+      0
+    );
+    const avgClosedPerWeek =
+      rows.length > 0 ? (totalClosed / rows.length).toFixed(1) : 0;
+    const lastWeekClosed =
+      rows.length > 0 ? rows[rows.length - 1].closed_count : 0;
+
+    res.json({
+      ok: true,
+      release,
+      fromDate: from.toISOString(),
+      toDate: to.toISOString(),
+      type: type || 'all',
+      summary: {
+        totalClosed,
+        totalEffort: Number(totalEffort.toFixed(2)),
+        avgClosedPerWeek: Number(avgClosedPerWeek),
+        lastWeekClosed,
+        weeksTracked: rows.length,
+      },
+      weekly: rows,
+    });
+  } catch (e) {
+    console.error('weekly-throughput error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // ---------- Static dashboard ----------
 app.use('/', express.static(path.join(__dirname, 'public')));
 

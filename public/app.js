@@ -97,6 +97,71 @@ function displayCriticalBugs(data) {
   card.style.display = 'block';
 }
 
+// Load top stale items for current release filter
+async function loadStaleItems() {
+  const release = qs('release')?.value?.trim() || null;
+
+  if (!release) {
+    // Hide if no release selected
+    const card = qs('staleItemsCard');
+    if (card) card.style.display = 'none';
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.set('release', release);
+    params.set('staleDays', '7');
+
+    const r = await fetch(`/api/release-aging?${params}`);
+    const j = await r.json();
+
+    if (r.ok && j.ok) {
+      displayStaleItems(j);
+    }
+  } catch (e) {
+    console.error('Failed to load stale items:', e);
+  }
+}
+
+function displayStaleItems(data) {
+  const card = qs('staleItemsCard');
+  const list = qs('staleItemsList');
+  const releaseLabel = qs('staleItemsRelease');
+
+  if (!card || !list || !releaseLabel) return;
+
+  const topOldest = data.topOldest || [];
+
+  if (topOldest.length === 0) {
+    list.innerHTML = '<div class="muted">No stale items found 🎉</div>';
+  } else {
+    const items = topOldest.slice(0, 5).map((item) => {
+      const id = item.work_item_id;
+      const title = escapeHtml(item.title || '(no title)');
+      const state = escapeHtml(item.state || '');
+      const ageDays = item.age_days || 0;
+      const assignedTo = escapeHtml(item.assigned_to || 'Unassigned');
+
+      return `
+        <div style="margin-bottom:8px; padding:6px; background:#f9f9f9; border-radius:6px;">
+          <div><strong>${renderIdPill(id)}</strong> ${title}</div>
+          <div class="small muted" style="margin-top:2px;">
+            ${state} • ${ageDays} days • ${assignedTo}
+          </div>
+        </div>
+      `;
+    });
+
+    list.innerHTML = items.join('');
+  }
+
+  releaseLabel.textContent = `Release: ${data.release} • ${
+    data.staleActiveCount || 0
+  } stale (≥${data.staleDays} days)`;
+  card.style.display = 'block';
+}
+
 function qs(id) {
   return document.getElementById(id);
 }
@@ -879,6 +944,7 @@ qs('btnLoad').addEventListener('click', async () => {
   await loadConfig();
   load();
   loadCriticalBugs();
+  loadStaleItems();
   loadReleaseHealth();
   loadReleaseProgress(qs('release')?.value);
   loadReleaseInsights(qs('release')?.value);
@@ -909,6 +975,7 @@ qs('next').addEventListener('click', () => {
   await loadConfig();
   await loadLastSyncInfo();
   loadCriticalBugs();
+  loadStaleItems();
   loadReleaseHealth();
   loadReleaseProgress(qs('release')?.value);
   loadReleaseInsights(qs('release')?.value);
