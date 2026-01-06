@@ -1129,12 +1129,10 @@ app.get('/api/release-predictability', async (req, res) => {
     : null;
 
   if (!releases || releases.length === 0) {
-    return res
-      .status(400)
-      .json({
-        ok: false,
-        error: 'releases parameter required (comma-separated)',
-      });
+    return res.status(400).json({
+      ok: false,
+      error: 'releases parameter required (comma-separated)',
+    });
   }
 
   try {
@@ -1430,7 +1428,7 @@ app.get('/api/quality-trends', async (req, res) => {
           AND type = 'Bug'
           AND created_date BETWEEN $2 AND $3
           AND is_deleted = FALSE
-          ${severity ? 'AND severity = $6' : ''}
+          ${severity ? 'AND severity = $4' : ''}
         GROUP BY 1
       ),
       weekly_closed AS (
@@ -1446,7 +1444,7 @@ app.get('/api/quality-trends', async (req, res) => {
           AND COALESCE(closed_date, state_change_date) BETWEEN $2 AND $3
           AND lower(state) = 'done'
           AND is_deleted = FALSE
-          ${severity ? 'AND severity = $6' : ''}
+          ${severity ? 'AND severity = $4' : ''}
         GROUP BY 1
       ),
       rework AS (
@@ -1463,7 +1461,7 @@ app.get('/api/quality-trends', async (req, res) => {
           WHERE release = $1
             AND type = 'Bug'
             AND snapshot_at BETWEEN $2 AND $3
-            ${severity ? 'AND severity = $6' : ''}
+            ${severity ? 'AND severity = $4' : ''}
         ) sub
         WHERE state IN ('Re-opened', 'Active', 'In Development')
           AND prev_state IN ('Resolved', 'Done')
@@ -1483,8 +1481,8 @@ app.get('/api/quality-trends', async (req, res) => {
     `;
 
     const params = severity
-      ? [release, from, to, release, from, to, severity]
-      : [release, from, to, release, from, to];
+      ? [release, from, to, severity]
+      : [release, from, to];
 
     const weeklyR = await pool.query(weeklyBugsSql, params);
 

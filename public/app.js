@@ -279,7 +279,10 @@ function displayReadinessScorecard(data) {
 
   body.innerHTML = `
     <div class="metric-row">
-      <span class="metric-label">Overall Health Score</span>
+      <span class="metric-label">
+        Overall Health Score
+        <div class="muted" style="font-size:11px; margin-top:2px;">Composite score across all metrics</div>
+      </span>
       <span class="metric-value">
         <span class="score-badge ${metrics.overallScore?.status || 'yellow'}">
           ${
@@ -292,7 +295,10 @@ function displayReadinessScorecard(data) {
       </span>
     </div>
     <div class="metric-row">
-      <span class="metric-label">Scope Stability</span>
+      <span class="metric-label">
+        Scope Stability
+        <div class="muted" style="font-size:11px; margin-top:2px;">% of scope unchanged since start</div>
+      </span>
       <span class="metric-value">
         ${
           metrics.scopeStability?.value !== null
@@ -303,7 +309,10 @@ function displayReadinessScorecard(data) {
       </span>
     </div>
     <div class="metric-row">
-      <span class="metric-label">Predictability</span>
+      <span class="metric-label">
+        Predictability
+        <div class="muted" style="font-size:11px; margin-top:2px;">Variance from original plan</div>
+      </span>
       <span class="metric-value">
         ${
           metrics.predictability?.value !== null
@@ -314,7 +323,10 @@ function displayReadinessScorecard(data) {
       </span>
     </div>
     <div class="metric-row">
-      <span class="metric-label">Confidence</span>
+      <span class="metric-label">
+        Confidence
+        <div class="muted" style="font-size:11px; margin-top:2px;">Trending toward on-time delivery</div>
+      </span>
       <span class="metric-value">
         ${
           metrics.confidence?.value !== null
@@ -325,7 +337,10 @@ function displayReadinessScorecard(data) {
       </span>
     </div>
     <div class="metric-row">
-      <span class="metric-label">QA Pass Rate</span>
+      <span class="metric-label">
+        QA Pass Rate
+        <div class="muted" style="font-size:11px; margin-top:2px;">QA-approved items / total items</div>
+      </span>
       <span class="metric-value">
         ${metrics.qaPct?.value !== null ? metrics.qaPct.value + '%' : 'N/A'}
         ${
@@ -337,7 +352,10 @@ function displayReadinessScorecard(data) {
       </span>
     </div>
     <div class="metric-row">
-      <span class="metric-label">Blocked Items</span>
+      <span class="metric-label">
+        Blocked Items
+        <div class="muted" style="font-size:11px; margin-top:2px;">% of active items with blockers</div>
+      </span>
       <span class="metric-value">
         ${
           metrics.blockedPct?.value !== null
@@ -348,7 +366,10 @@ function displayReadinessScorecard(data) {
       </span>
     </div>
     <div class="metric-row">
-      <span class="metric-label">ETA (days remaining)</span>
+      <span class="metric-label">
+        ETA (days remaining)
+        <div class="muted" style="font-size:11px; margin-top:2px;">Estimated days until release completion</div>
+      </span>
       <span class="metric-value">
         ${
           metrics.etaDays?.value !== null
