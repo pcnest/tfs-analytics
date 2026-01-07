@@ -153,6 +153,40 @@ function Get-TfsStatesOnly {
   return $map
 }
 
+function Invoke-CleanupOldReleases {
+  param([string[]]$ActiveReleases)
+  
+  if (-not $ActiveReleases -or $ActiveReleases.Count -eq 0) {
+    Write-Host "No active releases defined. Skipping cleanup."
+    return
+  }
+  
+  Write-Host "Marking releases not in ReleaseTargets as deleted..."
+  
+  $cleanupUrl = "$IngestUrl".Replace("/api/tfs-weekly-sync", "/api/cleanup-releases")
+  $headers = @{
+    "Content-Type" = "application/json"
+    "x-api-key"    = $SyncKey
+  }
+  
+  $body = @{
+    activeReleases = $ActiveReleases
+  } | ConvertTo-Json -Compress
+  
+  try {
+    $resp = Invoke-RestMethod -Method Post -Uri $cleanupUrl -Headers $headers -Body $body -TimeoutSec 30
+    if ($resp.ok) {
+      Write-Host "  Marked $($resp.markedDeleted) work items as deleted from old releases"
+    }
+    else {
+      Write-Warning "  Cleanup response not OK: $($resp.error)"
+    }
+  }
+  catch {
+    Write-Warning "Failed to cleanup old releases: $($_.Exception.Message)"
+  }
+}
+
 function Send-Ingest {
   param([object[]]$Rows, [int]$MaxRetries = 3)
   $payloadObj = @{
@@ -213,6 +247,9 @@ function Get-ExtractWorkItemIdFromUrl {
 
 
 # ---------- WIQL ----------
+# Cleanup old releases before syncing
+Invoke-CleanupOldReleases -ActiveReleases $ReleaseTargets
+
 if ($ReleaseTargets.Count -gt 0) {
   $tagConds = $ReleaseTargets | ForEach-Object { "[System.Tags] CONTAINS '$_'" }
   $tagFilter = " AND (" + ($tagConds -join " OR ") + ")"

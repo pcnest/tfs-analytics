@@ -1453,7 +1453,9 @@ function escapeHtml(v) {
 }
 
 function formatBlockers(text, idsRaw) {
-  const texts = String(text ?? '')
+  // New format: "Type ID - Title | Type ID - Title"
+  // The SQL view now provides formatted text like "Bug 12345 - Title"
+  const blockers = String(text ?? '')
     .split('|')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -1463,18 +1465,34 @@ function formatBlockers(text, idsRaw) {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const count = Math.max(texts.length, ids.length);
-  if (count === 0) return '-';
+  if (blockers.length === 0) return '-';
 
   const items = [];
-  for (let i = 0; i < count; i += 1) {
-    const t = texts[i] ?? '';
+  for (let i = 0; i < blockers.length; i += 1) {
+    const blockerText = blockers[i];
     const id = ids[i] ?? '';
-    const pill = id ? renderIdPill(id) : '';
-    const label = pill
-      ? `${pill}${t ? ` — ${escapeHtml(t)}` : ''}`
-      : escapeHtml(t || '');
-    items.push(`<li>${label}</li>`);
+
+    // Parse the format: "Type ID - Title"
+    // Example: "Bug 12345 - Database connection timeout"
+    const match = blockerText.match(/^(\w+)\s+(\d+)\s+-\s+(.+)$/);
+
+    if (match && id) {
+      const [, type, workItemId, title] = match;
+      const pill = renderIdPill(id);
+      // Format: <Type> <Linked ID> - <Title>
+      items.push(
+        `<li><span style="color:#666;">${escapeHtml(
+          type
+        )}</span> ${pill} — ${escapeHtml(title)}</li>`
+      );
+    } else if (id) {
+      // Fallback: just show linked ID and text
+      const pill = renderIdPill(id);
+      items.push(`<li>${pill} — ${escapeHtml(blockerText)}</li>`);
+    } else {
+      // No ID available, show plain text
+      items.push(`<li>${escapeHtml(blockerText)}</li>`);
+    }
   }
 
   return `<ul class="blockers-list">${items.join('')}</ul>`;

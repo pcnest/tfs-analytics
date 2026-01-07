@@ -1268,6 +1268,42 @@ app.get('/api/release-predictability', async (req, res) => {
   }
 });
 
+// ---------- Cleanup Old Releases (Soft Delete) ----------
+app.post('/api/cleanup-releases', async (req, res) => {
+  if (!req.body.activeReleases || !Array.isArray(req.body.activeReleases)) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'activeReleases array required' });
+  }
+
+  const activeReleases = req.body.activeReleases;
+
+  try {
+    // Mark all work items NOT in the active releases list as deleted
+    const sql = `
+      UPDATE tfs_workitems_analytics
+      SET is_deleted = TRUE
+      WHERE is_deleted = FALSE
+        AND release IS NOT NULL
+        AND release != ''
+        AND release NOT IN (${activeReleases
+          .map((_, i) => `$${i + 1}`)
+          .join(',')})
+    `;
+
+    const result = await pool.query(sql, activeReleases);
+
+    res.json({
+      ok: true,
+      markedDeleted: result.rowCount,
+      activeReleases,
+    });
+  } catch (e) {
+    console.error('cleanup-releases error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // ---------- Release List (for dropdown) ----------
 app.get('/api/releases', async (req, res) => {
   try {
