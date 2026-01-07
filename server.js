@@ -158,6 +158,114 @@ app.get('/api/release-health', async (req, res) => {
   }
 });
 
+// ---------- Release Health Trends (NEW: Confidence tracking) ----------
+app.get('/api/release-health-trends', async (req, res) => {
+  try {
+    const { project, release } = req.query;
+    const proj = project ? String(project).trim() : null;
+    const rel = release ? String(release).trim() : null;
+
+    // Check if trend tracking is enabled
+    const tableExists = await pool.query(
+      "SELECT to_regclass('public.release_health_snapshots') AS table_name"
+    );
+    const hasTable = !!tableExists.rows?.[0]?.table_name;
+    if (!hasTable) {
+      return res.json({
+        ok: true,
+        rows: [],
+        message:
+          'Confidence tracking not enabled. Run migration-add-confidence-tracking.sql',
+      });
+    }
+
+    // Get trends from view
+    const sql = `
+      SELECT
+        project,
+        release,
+        current_snapshot_at,
+        current_confidence,
+        previous_confidence,
+        prev_snapshot_at,
+        confidence_change,
+        trend,
+        trend_symbol,
+        confidence_driver,
+        critical,
+        high,
+        on_hold,
+        qa_pct,
+        decision_needed
+      FROM v_release_health_trends
+      WHERE
+        ($1::text IS NULL OR project = $1)
+        AND ($2::text IS NULL OR release = $2)
+      ORDER BY project, release;
+    `;
+
+    const { rows } = await pool.query(sql, [proj, rel]);
+    res.json({ ok: true, rows });
+  } catch (e) {
+    console.error('release-health-trends error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---------- Release Health History (NEW: Time-series data) ----------
+app.get('/api/release-health-history', async (req, res) => {
+  try {
+    const { release } = req.query;
+    if (!release) {
+      return res
+        .status(400)
+        .json({ ok: false, error: 'release parameter required' });
+    }
+
+    const tableExists = await pool.query(
+      "SELECT to_regclass('public.release_health_snapshots') AS table_name"
+    );
+    const hasTable = !!tableExists.rows?.[0]?.table_name;
+    if (!hasTable) {
+      return res.json({
+        ok: true,
+        rows: [],
+        message: 'Confidence tracking not enabled.',
+      });
+    }
+
+    // Get historical snapshots for a specific release
+    const sql = `
+      SELECT
+        snapshot_id,
+        snapshot_at,
+        project,
+        release,
+        confidence_pct,
+        confidence_driver,
+        critical,
+        high,
+        medium,
+        low,
+        on_hold,
+        qa_pass,
+        qa_total,
+        qa_pct,
+        decision_needed
+      FROM release_health_snapshots
+      WHERE release = $1
+      ORDER BY snapshot_at DESC
+      LIMIT 30;
+    `;
+
+    const { rows } = await pool.query(sql, [release]);
+    res.json({ ok: true, rows, release });
+  } catch (e) {
+    console.error('release-health-history error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // Burnup endpoint
 app.get('/api/release-burnup', async (req, res) => {
   const release = (req.query.release || '').toString().trim();
@@ -2241,6 +2349,21 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       'UPDATE tfs_sync_runs SET metrics = $1, last_changed_date = (SELECT MAX(changed_date) FROM tfs_workitems_analytics WHERE is_deleted = FALSE) WHERE run_id = $2',
       [JSON.stringify(metrics), runId]
     );
+
+    // NEW: Capture release health snapshot for confidence trending
+    try {
+      const snapshotResult = await client.query(
+        'SELECT capture_release_health_snapshot($1) as captured_count',
+        [runId]
+      );
+      const capturedCount = snapshotResult.rows[0]?.captured_count || 0;
+      console.log(
+        `Captured health snapshot: ${capturedCount} releases for run ${runId}`
+      );
+    } catch (snapErr) {
+      // Don't fail the sync if snapshot capture fails
+      console.warn('Failed to capture health snapshot:', snapErr.message);
+    }
 
     await client.query('COMMIT');
     res.json({
