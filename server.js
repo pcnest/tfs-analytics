@@ -2899,22 +2899,46 @@ app.get('/api/ai/executive-report', async (req, res) => {
         .json({ ok: false, error: 'Failed to generate executive report' });
     }
 
-    // Release Radar Executive Report (cherry-pick releases)
-    app.get('/api/ai/release-radar-report', async (req, res) => {
-      const selectedReleases = req.query.releases
-        ? String(req.query.releases)
-            .split(',')
-            .map((r) => r.trim())
-            .filter(Boolean)
-        : null;
+    // Format response based on requested format
+    if (format === 'text') {
+      const textReport = formatExecutiveReportAsText(report);
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename="executive-report.txt"'
+      );
+      return res.send(textReport);
+    }
 
-      try {
-        // Build query for selected releases or all releases
-        let sql;
-        let params = [];
+    res.json({
+      ok: true,
+      overview: report.overview,
+      releases: report.releases,
+      portfolioRisks: report.portfolioRisks,
+      usage: report.usage,
+    });
+  } catch (e) {
+    console.error('AI executive-report error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
 
-        if (selectedReleases && selectedReleases.length > 0) {
-          sql = `
+// Release Radar Executive Report (cherry-pick releases)
+app.get('/api/ai/release-radar-report', async (req, res) => {
+  const selectedReleases = req.query.releases
+    ? String(req.query.releases)
+        .split(',')
+        .map((r) => r.trim())
+        .filter(Boolean)
+    : null;
+
+  try {
+    // Build query for selected releases or all releases
+    let sql;
+    let params = [];
+
+    if (selectedReleases && selectedReleases.length > 0) {
+      sql = `
         SELECT
           project,
           release,
@@ -2936,9 +2960,9 @@ app.get('/api/ai/executive-report', async (req, res) => {
         WHERE release = ANY($1)
         ORDER BY project, release;
       `;
-          params = [selectedReleases];
-        } else {
-          sql = `
+      params = [selectedReleases];
+    } else {
+      sql = `
         SELECT
           project,
           release,
@@ -2960,50 +2984,36 @@ app.get('/api/ai/executive-report', async (req, res) => {
         WHERE release <> '(no release)'
         ORDER BY project, release;
       `;
-        }
-
-        const { rows } = await pool.query(sql, params);
-
-        if (rows.length === 0) {
-          return res.json({
-            ok: true,
-            message: 'No release radar data found',
-            releases: [],
-          });
-        }
-
-        // Generate AI-assisted report
-        const report = await aiService.generateReleaseRadarReport(rows);
-
-        if (!report.ok) {
-          return res.status(500).json({
-            ok: false,
-            error: report.error || 'Failed to generate Release Radar report',
-          });
-        }
-
-        res.json({
-          ok: true,
-          summary: report.summary,
-          releases: report.releases,
-          usage: report.usage,
-        });
-      } catch (e) {
-        console.error('AI release-radar-report error:', e);
-        res.status(500).json({ ok: false, error: String(e?.message || e) });
-      }
-    });
-
-    // Format response based on requested format
-    if (format === 'text') {
-      const textReport = formatExecutiveReportAsText(report);
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.send(textReport);
-    } else {
-      res.json(report);
     }
+
+    const { rows } = await pool.query(sql, params);
+
+    if (rows.length === 0) {
+      return res.json({
+        ok: true,
+        message: 'No release radar data found',
+        releases: [],
+      });
+    }
+
+    // Generate AI-assisted report
+    const report = await aiService.generateReleaseRadarReport(rows);
+
+    if (!report.ok) {
+      return res.status(500).json({
+        ok: false,
+        error: report.error || 'Failed to generate Release Radar report',
+      });
+    }
+
+    res.json({
+      ok: true,
+      summary: report.summary,
+      releases: report.releases,
+      usage: report.usage,
+    });
   } catch (e) {
-    console.error('AI executive-report error:', e);
+    console.error('AI release-radar-report error:', e);
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
