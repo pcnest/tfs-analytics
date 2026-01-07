@@ -2899,6 +2899,101 @@ app.get('/api/ai/executive-report', async (req, res) => {
         .json({ ok: false, error: 'Failed to generate executive report' });
     }
 
+    // Release Radar Executive Report (cherry-pick releases)
+    app.get('/api/ai/release-radar-report', async (req, res) => {
+      const selectedReleases = req.query.releases
+        ? String(req.query.releases)
+            .split(',')
+            .map((r) => r.trim())
+            .filter(Boolean)
+        : null;
+
+      try {
+        // Build query for selected releases or all releases
+        let sql;
+        let params = [];
+
+        if (selectedReleases && selectedReleases.length > 0) {
+          sql = `
+        SELECT
+          project,
+          release,
+          "ConfidencePct"::int AS "confidencePct",
+          "Confidence Signals" AS "confidenceSignals",
+          "Confidence Driver" AS "confidenceDriver",
+          "Critical"::int AS "critical",
+          "High"::int AS "high",
+          "Medium"::int AS "medium",
+          "Low"::int AS "low",
+          "OnHold"::int AS "onHold",
+          "QAPass"::int AS "qaPass",
+          "QATotal"::int AS "qaTotal",
+          "QA status (pass/total)" AS "qaStatus",
+          "QA%"::int AS "qaPct",
+          "Top Blockers" AS "topBlockers",
+          "Decision Needed (Y/N)" AS "decisionNeeded"
+        FROM public.v_release_health
+        WHERE release = ANY($1)
+        ORDER BY project, release;
+      `;
+          params = [selectedReleases];
+        } else {
+          sql = `
+        SELECT
+          project,
+          release,
+          "ConfidencePct"::int AS "confidencePct",
+          "Confidence Signals" AS "confidenceSignals",
+          "Confidence Driver" AS "confidenceDriver",
+          "Critical"::int AS "critical",
+          "High"::int AS "high",
+          "Medium"::int AS "medium",
+          "Low"::int AS "low",
+          "OnHold"::int AS "onHold",
+          "QAPass"::int AS "qaPass",
+          "QATotal"::int AS "qaTotal",
+          "QA status (pass/total)" AS "qaStatus",
+          "QA%"::int AS "qaPct",
+          "Top Blockers" AS "topBlockers",
+          "Decision Needed (Y/N)" AS "decisionNeeded"
+        FROM public.v_release_health
+        WHERE release <> '(no release)'
+        ORDER BY project, release;
+      `;
+        }
+
+        const { rows } = await pool.query(sql, params);
+
+        if (rows.length === 0) {
+          return res.json({
+            ok: true,
+            message: 'No release radar data found',
+            releases: [],
+          });
+        }
+
+        // Generate AI-assisted report
+        const report = await aiService.generateReleaseRadarReport(rows);
+
+        if (!report.ok) {
+          return res.status(500).json({
+            ok: false,
+            error: report.error || 'Failed to generate Release Radar report',
+          });
+        }
+
+        res.json({
+          ok: true,
+          summary: report.summary,
+          releases: report.releases,
+          usage: report.usage,
+        });
+      } catch (e) {
+        console.error('AI release-radar-report error:', e);
+        res.status(500).json({ ok: false, error: String(e?.message || e) });
+      }
+    });
+
     // Format response based on requested format
     if (format === 'text') {
       const textReport = formatExecutiveReportAsText(report);

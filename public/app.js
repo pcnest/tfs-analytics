@@ -2029,3 +2029,293 @@ async function generateExecutiveReport(selectedReleases) {
     );
   }
 }
+
+// Release Radar Executive Report (cherry-pick releases)
+qs('btnRadarReport')?.addEventListener('click', async () => {
+  // First, fetch available releases from Release Radar
+  showModalLoading('Loading Releases');
+
+  try {
+    // Get all release radar data
+    const r = await fetch('/api/release-health');
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) {
+      showModal(
+        'Error',
+        `<div style="color:#c62828;">${escapeHtml(
+          data.error || 'Failed to load releases'
+        )}</div>`
+      );
+      return;
+    }
+
+    const releases = data.rows || [];
+
+    if (releases.length === 0) {
+      showModal('No Releases', '<div>No release radar data found</div>');
+      return;
+    }
+
+    // Show release selector with Release Radar metrics
+    const selectorHtml = `
+      <div style="margin-bottom:15px;">
+        <p style="color:#666; font-size:14px;">Select releases to include in the Release Radar executive report:</p>
+      </div>
+      <div style="max-height:400px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px; padding:10px;">
+        <label style="display:flex; align-items:center; padding:8px; margin-bottom:5px; cursor:pointer; border-radius:4px; background:#f9f9f9;">
+          <input type="checkbox" id="selectAllRadarReleases" style="margin-right:10px; transform:scale(1.2);" checked>
+          <strong>Select All (${releases.length} releases)</strong>
+        </label>
+        <hr style="margin:10px 0; border:none; border-top:1px solid #e0e0e0;">
+        ${releases
+          .map((rel) => {
+            const icon =
+              rel.confidencePct >= 80
+                ? '🟢'
+                : rel.confidencePct >= 60
+                ? '🟡'
+                : '🔴';
+            return `
+          <label style="display:flex; align-items:center; padding:8px; margin-bottom:5px; cursor:pointer; border-radius:4px; transition:background 0.2s;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">
+            <input type="checkbox" class="radar-release-checkbox" value="${escapeHtml(
+              rel.release
+            )}" style="margin-right:10px; transform:scale(1.2);" checked>
+            <div style="flex:1;">
+              <div style="font-weight:500;">${icon} ${escapeHtml(
+              rel.release
+            )} <span style="font-size:12px; color:#666;">(${escapeHtml(
+              rel.project
+            )})</span></div>
+              <div style="font-size:12px; color:#666;">
+                Confidence: ${rel.confidencePct}% • QA: ${
+              rel.qaPct || 0
+            }% • Priorities: ${rel.critical || 0}C/${rel.high || 0}H/${
+              rel.medium || 0
+            }M/${rel.low || 0}L
+              </div>
+            </div>
+          </label>
+        `;
+          })
+          .join('')}
+      </div>
+      <div style="margin-top:20px; display:flex; gap:10px; justify-content:flex-end;">
+        <button id="btnCancelRadarReport" style="background:#666; color:white;">Cancel</button>
+        <button id="btnGenerateRadarReport" style="background:#34a853; color:white;">Generate Report</button>
+      </div>
+    `;
+
+    showModal('Select Releases for Release Radar Report', selectorHtml);
+
+    // Add event listeners after modal is shown
+    const selectAll = qs('selectAllRadarReleases');
+    const checkboxes = document.querySelectorAll('.radar-release-checkbox');
+    const btnGenerate = qs('btnGenerateRadarReport');
+    const btnCancel = qs('btnCancelRadarReport');
+
+    selectAll.addEventListener('change', () => {
+      checkboxes.forEach((cb) => {
+        cb.checked = selectAll.checked;
+      });
+    });
+
+    checkboxes.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const allChecked = Array.from(checkboxes).every((c) => c.checked);
+        selectAll.checked = allChecked;
+      });
+    });
+
+    btnCancel.addEventListener('click', hideModal);
+
+    btnGenerate.addEventListener('click', () => {
+      const selectedReleases = Array.from(checkboxes)
+        .filter((cb) => cb.checked)
+        .map((cb) => cb.value);
+
+      if (selectedReleases.length === 0) {
+        alert('Please select at least one release');
+        return;
+      }
+
+      generateReleaseRadarReport(selectedReleases);
+    });
+  } catch (e) {
+    console.error('Release Radar selector error:', e);
+    showModal(
+      'Error',
+      `<div style="color:#c62828;">Failed to load releases: ${escapeHtml(
+        String(e)
+      )}</div>`
+    );
+  }
+});
+
+// Generate Release Radar report with AI insights
+async function generateReleaseRadarReport(selectedReleases) {
+  showModalLoading('Generating Release Radar Report');
+
+  try {
+    const releasesParam = selectedReleases.join(',');
+    const r = await fetch(
+      `/api/ai/release-radar-report?releases=${encodeURIComponent(
+        releasesParam
+      )}`
+    );
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) {
+      showModal(
+        'Error',
+        `<div style="color:#c62828;">${escapeHtml(
+          data.error || 'Failed to generate Release Radar report'
+        )}</div>`
+      );
+      return;
+    }
+
+    const { summary, releases } = data;
+
+    // Build release table
+    const releasesTableHtml = `
+      <div style="margin:20px 0;">
+        <div style="font-size:16px; font-weight:600; margin-bottom:10px;">Release Health Details</div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+              <tr style="background:#f5f5f5; border-bottom:2px solid #ddd;">
+                <th style="padding:8px; text-align:left;">Release</th>
+                <th style="padding:8px; text-align:center;">Confidence</th>
+                <th style="padding:8px; text-align:center;">QA</th>
+                <th style="padding:8px; text-align:center;">C/H/M/L</th>
+                <th style="padding:8px; text-align:center;">OnHold</th>
+                <th style="padding:8px; text-align:left;">Driver</th>
+                <th style="padding:8px; text-align:left;">Top Blockers</th>
+                <th style="padding:8px; text-align:center;">Decision</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${releases
+                .map((rel) => {
+                  const confColor =
+                    rel.confidencePct >= 80
+                      ? '#2e7d32'
+                      : rel.confidencePct >= 60
+                      ? '#e65100'
+                      : '#c62828';
+                  return `
+                <tr style="border-bottom:1px solid #eee;">
+                  <td style="padding:8px;">
+                    <div style="font-weight:500;">${escapeHtml(
+                      rel.release
+                    )}</div>
+                    <div style="font-size:11px; color:#666;">${escapeHtml(
+                      rel.project
+                    )}</div>
+                  </td>
+                  <td style="padding:8px; text-align:center; color:${confColor}; font-weight:600;">${
+                    rel.confidencePct
+                  }%</td>
+                  <td style="padding:8px; text-align:center;">${escapeHtml(
+                    rel.qaStatus || 'N/A'
+                  )}<br><span style="font-size:11px; color:#666;">(${
+                    rel.qaPct || 0
+                  }%)</span></td>
+                  <td style="padding:8px; text-align:center;">${
+                    rel.critical || 0
+                  }/${rel.high || 0}/${rel.medium || 0}/${rel.low || 0}</td>
+                  <td style="padding:8px; text-align:center; ${
+                    rel.onHold > 0 ? 'color:#e65100; font-weight:600;' : ''
+                  }">${rel.onHold || 0}</td>
+                  <td style="padding:8px; font-size:12px;">${escapeHtml(
+                    rel.confidenceDriver || '-'
+                  )}</td>
+                  <td style="padding:8px; font-size:12px;">${escapeHtml(
+                    rel.topBlockers || '-'
+                  )}</td>
+                  <td style="padding:8px; text-align:center; ${
+                    rel.decisionNeeded === 'Y'
+                      ? 'color:#c62828; font-weight:700;'
+                      : ''
+                  }">${escapeHtml(rel.decisionNeeded || 'N')}</td>
+                </tr>
+              `;
+                })
+                .join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    // AI Summary section
+    const aiSummaryHtml = `
+      <div style="background:#e3f2fd; padding:15px; border-radius:8px; border-left:4px solid #2196f3; margin-bottom:20px;">
+        <div style="display:flex; align-items:center; margin-bottom:10px;">
+          <span style="font-size:20px; margin-right:8px;">🤖</span>
+          <div style="font-size:16px; font-weight:600; color:#1565c0;">AI-Assisted Executive Summary</div>
+        </div>
+        <div style="line-height:1.7; font-size:14px; white-space:pre-wrap;">${escapeHtml(
+          summary
+        )}</div>
+      </div>
+    `;
+
+    const content = `
+      ${aiSummaryHtml}
+      ${releasesTableHtml}
+      <div style="margin-top:20px; padding-top:15px; border-top:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-size:12px; color:#666;">
+          Generated: ${new Date().toLocaleString()}
+        </div>
+        <button id="btnCopyRadarReport" style="background:#4285f4; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
+          📋 Copy to Clipboard
+        </button>
+      </div>
+    `;
+
+    showModal('📊 Release Radar Executive Report', content);
+
+    // Add copy functionality
+    qs('btnCopyRadarReport')?.addEventListener('click', () => {
+      const textContent = `RELEASE RADAR EXECUTIVE REPORT\nGenerated: ${new Date().toLocaleString()}\n\n${summary}\n\nRELEASE DETAILS:\n${releases
+        .map(
+          (r) =>
+            `\n${r.release} (${r.project})\n- Confidence: ${
+              r.confidencePct
+            }%\n- QA: ${r.qaStatus} (${r.qaPct}%)\n- Priorities: ${
+              r.critical
+            }C/${r.high}H/${r.medium}M/${r.low}L\n- OnHold: ${
+              r.onHold
+            }\n- Driver: ${r.confidenceDriver || 'N/A'}\n- Blockers: ${
+              r.topBlockers || 'None'
+            }\n- Decision Needed: ${r.decisionNeeded || 'N'}`
+        )
+        .join('\n')}`;
+
+      navigator.clipboard
+        .writeText(textContent)
+        .then(() => {
+          const btn = qs('btnCopyRadarReport');
+          const orig = btn.textContent;
+          btn.textContent = '✓ Copied!';
+          setTimeout(() => {
+            btn.textContent = orig;
+          }, 2000);
+        })
+        .catch((err) => {
+          console.error('Copy failed:', err);
+          alert('Failed to copy to clipboard');
+        });
+    });
+  } catch (e) {
+    console.error('Release Radar report error:', e);
+    showModal(
+      'Error',
+      `<div style="color:#c62828;">Failed to generate Release Radar report: ${escapeHtml(
+        String(e)
+      )}</div>`
+    );
+  }
+}
