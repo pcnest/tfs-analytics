@@ -21,7 +21,7 @@ param(
   [string]   $Collection = "SupplyPro.Applications",
   [string]   $Project = "SupplyPro.Core",
   [string]   $ApiVersion = "2.0",
-  [string[]] $ReleaseTargets = @("80.1.6", "80.1.5", "18.5", "18.4", "18.3", "5.0.5", "4.3.26"),
+  [string[]] $ReleaseTargets = @("80.1.6", "80.1.5.23", "18.4", "18.4.20", "5.0.5", "4.3.29"),
   [int]      $ChunkSize = 150,
   [switch]   $UseServerTime,
   [int]      $RecentChangedDays = 7,

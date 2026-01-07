@@ -1,6 +1,8 @@
 const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
+const aiService = require('./lib/ai-service');
+const reportBuilder = require('./lib/report-builder');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -2720,6 +2722,187 @@ app.get('/api/metrics-history', async (req, res) => {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
+
+// ============================================
+// AI-Powered Reporting
+// ============================================
+
+// AI Release Summary
+app.get('/api/ai/release-summary', async (req, res) => {
+  const release = req.query.release ? String(req.query.release).trim() : null;
+
+  if (!release) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'release parameter required' });
+  }
+
+  try {
+    // Build release context
+    const releaseData = await reportBuilder.buildReleaseContext(pool, release);
+
+    // Generate AI summary
+    const summary = await aiService.generateReleaseSummary(releaseData);
+
+    if (!summary.ok) {
+      return res.status(500).json({ ok: false, error: summary.error });
+    }
+
+    res.json({
+      ok: true,
+      release,
+      summary: summary.content,
+      metrics: releaseData.metrics,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('AI release-summary error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// AI Risk Analysis
+app.get('/api/ai/risk-analysis', async (req, res) => {
+  const release = req.query.release ? String(req.query.release).trim() : null;
+
+  if (!release) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'release parameter required' });
+  }
+
+  try {
+    // Build release context
+    const releaseData = await reportBuilder.buildReleaseContext(pool, release);
+
+    // Generate AI risk analysis
+    const riskAnalysis = await aiService.generateRiskAnalysis(releaseData);
+
+    if (!riskAnalysis.ok) {
+      return res.status(500).json({ ok: false, error: riskAnalysis.error });
+    }
+
+    res.json({
+      ok: true,
+      release,
+      riskAnalysis: riskAnalysis.content,
+      metrics: releaseData.metrics,
+      warnings: releaseData.warnings,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('AI risk-analysis error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// Executive Report (All Active Releases)
+app.get('/api/ai/executive-report', async (req, res) => {
+  const format = req.query.format
+    ? String(req.query.format).trim().toLowerCase()
+    : 'json';
+
+  try {
+    // Get all active releases
+    const activeReleases = await reportBuilder.getActiveReleases(pool);
+
+    if (activeReleases.length === 0) {
+      return res.json({
+        ok: true,
+        message: 'No active releases found',
+        releases: [],
+      });
+    }
+
+    // Build context for each release
+    const releasesData = [];
+    for (const release of activeReleases) {
+      try {
+        const releaseData = await reportBuilder.buildReleaseContext(
+          pool,
+          release
+        );
+        releasesData.push(releaseData);
+      } catch (e) {
+        console.error(`Failed to build context for ${release}:`, e);
+        // Continue with other releases
+      }
+    }
+
+    if (releasesData.length === 0) {
+      return res.status(500).json({
+        ok: false,
+        error: 'Failed to build context for any releases',
+      });
+    }
+
+    // Generate executive report
+    const report = await aiService.generateExecutiveReport(releasesData, {
+      format,
+    });
+
+    if (!report.ok) {
+      return res
+        .status(500)
+        .json({ ok: false, error: 'Failed to generate executive report' });
+    }
+
+    // Format response based on requested format
+    if (format === 'text') {
+      const textReport = formatExecutiveReportAsText(report);
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.send(textReport);
+    } else {
+      res.json(report);
+    }
+  } catch (e) {
+    console.error('AI executive-report error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// Helper function to format executive report as plain text
+function formatExecutiveReportAsText(report) {
+  const { overview, releases, portfolioRisks, generatedAt } = report;
+
+  let text = `WEEKLY EXECUTIVE REPORT\n`;
+  text += `Generated: ${new Date(generatedAt).toLocaleString()}\n`;
+  text += `\n`;
+  text += `${'='.repeat(60)}\n`;
+  text += `PORTFOLIO OVERVIEW\n`;
+  text += `${'='.repeat(60)}\n`;
+  text += `• ${overview.total} Active Releases\n`;
+  text += `• ${overview.onTrack} On Track (${overview.onTrackPct}%)\n`;
+  text += `• ${overview.atRisk} At Risk (${overview.atRiskPct}%)\n`;
+  text += `• ${overview.critical} Critical (${overview.criticalPct}%)\n`;
+  text += `\n`;
+  text += `${'='.repeat(60)}\n`;
+  text += `RELEASE SUMMARIES\n`;
+  text += `${'='.repeat(60)}\n\n`;
+
+  releases.forEach((r) => {
+    const statusIcon =
+      r.status === 'green' ? '🟢' : r.status === 'yellow' ? '🟡' : '🔴';
+    const statusLabel =
+      r.status === 'green'
+        ? 'ON TRACK'
+        : r.status === 'yellow'
+        ? 'AT RISK'
+        : 'CRITICAL';
+
+    text += `${statusIcon} Release ${r.release} - ${statusLabel}\n`;
+    text += `Health: ${r.health}%\n`;
+    text += `Summary: ${r.summary}\n\n`;
+  });
+
+  text += `${'='.repeat(60)}\n`;
+  text += `TOP PORTFOLIO RISKS\n`;
+  text += `${'='.repeat(60)}\n`;
+  text += `${portfolioRisks}\n`;
+  text += `\n`;
+
+  return text;
+}
 
 app.listen(PORT, () => {
   console.log(`tfs-analytics-dashboard listening on :${PORT}`);

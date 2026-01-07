@@ -1592,3 +1592,325 @@ qs('next').addEventListener('click', () => {
     load();
   }
 })();
+
+// ============================================
+// AI Report Functions
+// ============================================
+
+// Modal management
+const modal = qs('aiModal');
+const modalTitle = qs('modalTitle');
+const modalBody = qs('modalBody');
+const modalClose = qs('modalClose');
+const modalClose2 = qs('modalClose2');
+const modalCopy = qs('modalCopy');
+
+function showModal(title, content) {
+  modalTitle.textContent = title;
+  modalBody.innerHTML = content;
+  modal.style.display = 'block';
+}
+
+function hideModal() {
+  modal.style.display = 'none';
+}
+
+function showModalLoading(title = 'AI Report') {
+  modalTitle.textContent = title;
+  modalBody.innerHTML = `
+    <div style="text-align:center; padding:40px;">
+      <div class="loading-spinner"></div>
+      <div style="margin-top:10px;">Generating AI report...</div>
+    </div>
+  `;
+  modal.style.display = 'block';
+}
+
+modalClose.addEventListener('click', hideModal);
+modalClose2.addEventListener('click', hideModal);
+window.addEventListener('click', (e) => {
+  if (e.target === modal) hideModal();
+});
+
+modalCopy.addEventListener('click', () => {
+  const text = modalBody.textContent || modalBody.innerText;
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      const originalText = modalCopy.textContent;
+      modalCopy.textContent = '✓ Copied!';
+      setTimeout(() => {
+        modalCopy.textContent = originalText;
+      }, 2000);
+    })
+    .catch((err) => {
+      console.error('Copy failed:', err);
+      alert('Failed to copy to clipboard');
+    });
+});
+
+// AI Summary for current release
+qs('btnAISummary').addEventListener('click', async () => {
+  const release = qs('release')?.value?.trim();
+
+  if (!release) {
+    alert('Please select a release first');
+    return;
+  }
+
+  showModalLoading('AI Release Summary');
+
+  try {
+    const r = await fetch(
+      `/api/ai/release-summary?release=${encodeURIComponent(release)}`
+    );
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) {
+      showModal(
+        'Error',
+        `<div style="color:#c62828;">${escapeHtml(
+          data.error || 'Failed to generate summary'
+        )}</div>`
+      );
+      return;
+    }
+
+    const { summary, metrics } = data;
+
+    const healthIcon =
+      metrics.overallScore?.status === 'green'
+        ? '🟢'
+        : metrics.overallScore?.status === 'yellow'
+        ? '🟡'
+        : '🔴';
+
+    const content = `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:18px; font-weight:600; margin-bottom:10px;">
+          ${healthIcon} Release ${escapeHtml(release)}
+        </div>
+        <div style="display:flex; gap:20px; margin:10px 0; flex-wrap:wrap;">
+          <div>
+            <div class="muted" style="font-size:12px;">Health Score</div>
+            <div style="font-size:24px; font-weight:700;">${
+              metrics.overallScore?.value || 'N/A'
+            }%</div>
+          </div>
+          <div>
+            <div class="muted" style="font-size:12px;">Scope Stability</div>
+            <div style="font-size:24px; font-weight:700;">${
+              metrics.scopeStability?.value || 'N/A'
+            }%</div>
+          </div>
+          <div>
+            <div class="muted" style="font-size:12px;">QA Pass Rate</div>
+            <div style="font-size:24px; font-weight:700;">${
+              metrics.qaPct?.value || 'N/A'
+            }%</div>
+          </div>
+          <div>
+            <div class="muted" style="font-size:12px;">ETA</div>
+            <div style="font-size:24px; font-weight:700;">${
+              metrics.etaDays?.value !== null
+                ? metrics.etaDays.value + 'd'
+                : 'N/A'
+            }</div>
+          </div>
+        </div>
+      </div>
+      <div style="border-top:2px solid #eee; padding-top:15px;">
+        <div style="font-weight:600; margin-bottom:10px;">Executive Summary:</div>
+        <div style="line-height:1.8; font-size:14px;">${escapeHtml(
+          summary
+        )}</div>
+      </div>
+      <div style="margin-top:20px; padding-top:15px; border-top:1px solid #eee;">
+        <button onclick="loadRiskAnalysis('${escapeHtml(
+          release
+        )}')" style="background:#ea4335; color:white;">
+          View Risk Analysis
+        </button>
+      </div>
+    `;
+
+    showModal(`AI Summary: ${release}`, content);
+  } catch (e) {
+    console.error('AI summary error:', e);
+    showModal(
+      'Error',
+      `<div style="color:#c62828;">Failed to generate AI summary: ${escapeHtml(
+        String(e)
+      )}</div>`
+    );
+  }
+});
+
+// Risk Analysis (can be called from summary or standalone)
+window.loadRiskAnalysis = async function (release) {
+  showModalLoading('AI Risk Analysis');
+
+  try {
+    const r = await fetch(
+      `/api/ai/risk-analysis?release=${encodeURIComponent(release)}`
+    );
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) {
+      showModal(
+        'Error',
+        `<div style="color:#c62828;">${escapeHtml(
+          data.error || 'Failed to generate risk analysis'
+        )}</div>`
+      );
+      return;
+    }
+
+    const { riskAnalysis, warnings } = data;
+
+    const warningsHtml =
+      warnings && warnings.length > 0
+        ? `<div style="background:#fff9e6; padding:12px; border-radius:6px; margin-bottom:15px;">
+           <div style="font-weight:600; margin-bottom:5px;">⚠️ System Warnings:</div>
+           ${warnings
+             .map(
+               (w) => `<div style="font-size:13px;">• ${escapeHtml(w)}</div>`
+             )
+             .join('')}
+         </div>`
+        : '';
+
+    const content = `
+      ${warningsHtml}
+      <div style="font-weight:600; margin-bottom:10px; font-size:16px;">Risk Analysis & Recommendations:</div>
+      <div style="line-height:1.8; white-space:pre-wrap;">${escapeHtml(
+        riskAnalysis
+      )}</div>
+    `;
+
+    showModal(`Risk Analysis: ${release}`, content);
+  } catch (e) {
+    console.error('Risk analysis error:', e);
+    showModal(
+      'Error',
+      `<div style="color:#c62828;">Failed to generate risk analysis: ${escapeHtml(
+        String(e)
+      )}</div>`
+    );
+  }
+};
+
+// Executive Report (all active releases)
+qs('btnExecutiveReport').addEventListener('click', async () => {
+  showModalLoading('Executive Report');
+
+  try {
+    const r = await fetch('/api/ai/executive-report?format=json');
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) {
+      showModal(
+        'Error',
+        `<div style="color:#c62828;">${escapeHtml(
+          data.error || 'Failed to generate executive report'
+        )}</div>`
+      );
+      return;
+    }
+
+    const { overview, releases, portfolioRisks } = data;
+
+    const overviewHtml = `
+      <div style="background:#f5f5f5; padding:15px; border-radius:8px; margin-bottom:20px;">
+        <div style="font-size:18px; font-weight:600; margin-bottom:10px;">Portfolio Overview</div>
+        <div style="display:flex; gap:20px; flex-wrap:wrap;">
+          <div>
+            <div class="muted" style="font-size:12px;">Total Releases</div>
+            <div style="font-size:24px; font-weight:700;">${overview.total}</div>
+          </div>
+          <div>
+            <div class="muted" style="font-size:12px;">On Track</div>
+            <div style="font-size:24px; font-weight:700; color:#2e7d32;">${overview.onTrack} (${overview.onTrackPct}%)</div>
+          </div>
+          <div>
+            <div class="muted" style="font-size:12px;">At Risk</div>
+            <div style="font-size:24px; font-weight:700; color:#e65100;">${overview.atRisk} (${overview.atRiskPct}%)</div>
+          </div>
+          <div>
+            <div class="muted" style="font-size:12px;">Critical</div>
+            <div style="font-size:24px; font-weight:700; color:#c62828;">${overview.critical} (${overview.criticalPct}%)</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const releasesHtml = releases
+      .map((rel) => {
+        const icon =
+          rel.status === 'green' ? '🟢' : rel.status === 'yellow' ? '🟡' : '🔴';
+        const statusLabel =
+          rel.status === 'green'
+            ? 'ON TRACK'
+            : rel.status === 'yellow'
+            ? 'AT RISK'
+            : 'CRITICAL';
+        const statusColor =
+          rel.status === 'green'
+            ? '#2e7d32'
+            : rel.status === 'yellow'
+            ? '#e65100'
+            : '#c62828';
+
+        return `
+        <div style="border: 1px solid #e0e0e0; border-radius:8px; padding:15px; margin-bottom:15px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div style="font-size:16px; font-weight:600;">${icon} ${escapeHtml(
+          rel.release
+        )}</div>
+            <div style="background:${statusColor}; color:white; padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600;">
+              ${statusLabel}
+            </div>
+          </div>
+          <div style="color:#666; font-size:13px; margin-bottom:8px;">Health: ${
+            rel.health
+          }%</div>
+          <div style="line-height:1.6; font-size:14px;">${escapeHtml(
+            rel.summary
+          )}</div>
+        </div>
+      `;
+      })
+      .join('');
+
+    const risksHtml = `
+      <div style="background:#fdecea; padding:15px; border-radius:8px; border:1px solid #f44336;">
+        <div style="font-size:16px; font-weight:600; margin-bottom:10px; color:#c62828;">🔴 Top Portfolio Risks</div>
+        <div style="line-height:1.8; white-space:pre-wrap; font-size:14px;">${escapeHtml(
+          portfolioRisks
+        )}</div>
+      </div>
+    `;
+
+    const content = `
+      ${overviewHtml}
+      <div style="font-size:18px; font-weight:600; margin:20px 0 10px 0;">Release Summaries</div>
+      ${releasesHtml}
+      ${risksHtml}
+      <div style="margin-top:20px; padding-top:15px; border-top:1px solid #eee; text-align:center;">
+        <a href="/api/ai/executive-report?format=text" target="_blank" style="color:#4285f4; text-decoration:none;">
+          📄 Download as Plain Text
+        </a>
+      </div>
+    `;
+
+    showModal('Weekly Executive Report', content);
+  } catch (e) {
+    console.error('Executive report error:', e);
+    showModal(
+      'Error',
+      `<div style="color:#c62828;">Failed to generate executive report: ${escapeHtml(
+        String(e)
+      )}</div>`
+    );
+  }
+});
