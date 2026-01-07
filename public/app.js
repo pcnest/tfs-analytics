@@ -1802,10 +1802,125 @@ window.loadRiskAnalysis = async function (release) {
 
 // Executive Report (all active releases)
 qs('btnExecutiveReport').addEventListener('click', async () => {
-  showModalLoading('Executive Report');
+  // First, show release selector
+  showModalLoading('Select Releases');
 
   try {
-    const r = await fetch('/api/ai/executive-report?format=json');
+    // Fetch available releases
+    const r = await fetch('/api/ai/active-releases');
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) {
+      showModal(
+        'Error',
+        `<div style="color:#c62828;">${escapeHtml(
+          data.error || 'Failed to load releases'
+        )}</div>`
+      );
+      return;
+    }
+
+    const { releases } = data;
+
+    if (releases.length === 0) {
+      showModal('No Releases', '<div>No active releases found</div>');
+      return;
+    }
+
+    // Show release selector
+    const selectorHtml = `
+      <div style="margin-bottom:15px;">
+        <p style="color:#666; font-size:14px;">Select releases to include in the executive report:</p>
+      </div>
+      <div style="max-height:400px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px; padding:10px;">
+        <label style="display:flex; align-items:center; padding:8px; margin-bottom:5px; cursor:pointer; border-radius:4px; background:#f9f9f9;">
+          <input type="checkbox" id="selectAllReleases" style="margin-right:10px; transform:scale(1.2);" checked>
+          <strong>Select All (${releases.length} releases)</strong>
+        </label>
+        <hr style="margin:10px 0; border:none; border-top:1px solid #e0e0e0;">
+        ${releases
+          .map(
+            (rel) => `
+          <label style="display:flex; align-items:center; padding:8px; margin-bottom:5px; cursor:pointer; border-radius:4px; transition:background 0.2s;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">
+            <input type="checkbox" class="release-checkbox" value="${escapeHtml(
+              rel.release
+            )}" style="margin-right:10px; transform:scale(1.2);" checked>
+            <div style="flex:1;">
+              <div style="font-weight:500;">${escapeHtml(rel.release)}</div>
+              <div style="font-size:12px; color:#666;">
+                ${rel.totalItems} total • ${rel.activeItems} active • ${
+              rel.doneItems
+            } done
+              </div>
+            </div>
+          </label>
+        `
+          )
+          .join('')}
+      </div>
+      <div style="margin-top:20px; display:flex; gap:10px; justify-content:flex-end;">
+        <button id="btnCancelReport" style="background:#666; color:white;">Cancel</button>
+        <button id="btnGenerateReport" style="background:#34a853; color:white;">Generate Report</button>
+      </div>
+    `;
+
+    showModal('Select Releases for Executive Report', selectorHtml);
+
+    // Add event listeners after modal is shown
+    const selectAll = qs('selectAllReleases');
+    const checkboxes = document.querySelectorAll('.release-checkbox');
+    const btnGenerate = qs('btnGenerateReport');
+    const btnCancel = qs('btnCancelReport');
+
+    selectAll.addEventListener('change', () => {
+      checkboxes.forEach((cb) => {
+        cb.checked = selectAll.checked;
+      });
+    });
+
+    checkboxes.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const allChecked = Array.from(checkboxes).every((c) => c.checked);
+        selectAll.checked = allChecked;
+      });
+    });
+
+    btnCancel.addEventListener('click', hideModal);
+
+    btnGenerate.addEventListener('click', () => {
+      const selectedReleases = Array.from(checkboxes)
+        .filter((cb) => cb.checked)
+        .map((cb) => cb.value);
+
+      if (selectedReleases.length === 0) {
+        alert('Please select at least one release');
+        return;
+      }
+
+      generateExecutiveReport(selectedReleases);
+    });
+  } catch (e) {
+    console.error('Release selector error:', e);
+    showModal(
+      'Error',
+      `<div style="color:#c62828;">Failed to load releases: ${escapeHtml(
+        String(e)
+      )}</div>`
+    );
+  }
+});
+
+// Generate executive report with selected releases
+async function generateExecutiveReport(selectedReleases) {
+  showModalLoading('Generating Executive Report');
+
+  try {
+    const releasesParam = selectedReleases.join(',');
+    const r = await fetch(
+      `/api/ai/executive-report?format=json&releases=${encodeURIComponent(
+        releasesParam
+      )}`
+    );
     const data = await r.json();
 
     if (!r.ok || !data.ok) {
@@ -1913,4 +2028,4 @@ qs('btnExecutiveReport').addEventListener('click', async () => {
       )}</div>`
     );
   }
-});
+}

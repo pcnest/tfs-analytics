@@ -2727,6 +2727,47 @@ app.get('/api/metrics-history', async (req, res) => {
 // AI-Powered Reporting
 // ============================================
 
+// Get active releases for selection
+app.get('/api/ai/active-releases', async (req, res) => {
+  try {
+    const activeReleases = await reportBuilder.getActiveReleases(pool);
+
+    // Get basic info for each release
+    const releasesInfo = [];
+    for (const release of activeReleases) {
+      try {
+        const infoSql = `
+          SELECT 
+            COUNT(*)::int AS total_items,
+            COUNT(*) FILTER (WHERE lower(state) = 'done')::int AS done_items,
+            COUNT(*) FILTER (WHERE lower(state) NOT IN ('done', 'removed'))::int AS active_items
+          FROM tfs_workitems_analytics
+          WHERE release = $1 AND is_deleted = FALSE
+        `;
+        const result = await pool.query(infoSql, [release]);
+        const info = result.rows[0] || {};
+
+        releasesInfo.push({
+          release,
+          totalItems: info.total_items || 0,
+          doneItems: info.done_items || 0,
+          activeItems: info.active_items || 0,
+        });
+      } catch (e) {
+        console.error(`Failed to get info for ${release}:`, e);
+      }
+    }
+
+    res.json({
+      ok: true,
+      releases: releasesInfo,
+    });
+  } catch (e) {
+    console.error('active-releases error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // AI Release Summary
 app.get('/api/ai/release-summary', async (req, res) => {
   const release = req.query.release ? String(req.query.release).trim() : null;
@@ -2796,15 +2837,26 @@ app.get('/api/ai/risk-analysis', async (req, res) => {
   }
 });
 
-// Executive Report (All Active Releases)
+// Executive Report (All Active Releases or Cherry-picked)
 app.get('/api/ai/executive-report', async (req, res) => {
   const format = req.query.format
     ? String(req.query.format).trim().toLowerCase()
     : 'json';
+  const selectedReleases = req.query.releases
+    ? String(req.query.releases)
+        .split(',')
+        .map((r) => r.trim())
+        .filter(Boolean)
+    : null;
 
   try {
-    // Get all active releases
-    const activeReleases = await reportBuilder.getActiveReleases(pool);
+    // Get all active releases or use selected ones
+    let activeReleases;
+    if (selectedReleases && selectedReleases.length > 0) {
+      activeReleases = selectedReleases;
+    } else {
+      activeReleases = await reportBuilder.getActiveReleases(pool);
+    }
 
     if (activeReleases.length === 0) {
       return res.json({

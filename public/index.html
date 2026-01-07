@@ -370,11 +370,14 @@
     }
 
     .modal-body {
-      max-height: 70vh;
+      max-height: 65vh;
       overflow-y: auto;
-      white-space: pre-wrap;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 10px 0;
       line-height: 1.6;
+    }
+
+    .modal-body>div {
+      word-wrap: break-word;
     }
 
     .modal-footer {
@@ -386,6 +389,23 @@
 
     .modal-footer button {
       margin-left: 8px;
+    }
+
+    /* Modal button styling */
+    .modal button,
+    #aiModal button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .modal button:hover,
+    #aiModal button:hover {
+      opacity: 0.9;
     }
 
     .loading-spinner {
