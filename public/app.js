@@ -2217,33 +2217,39 @@ async function generateReleaseRadarReport(selectedReleases) {
     showModal('📊 Release Radar Executive Report', content);
 
     // Add copy functionality (HTML format)
-    qs('btnCopyRadarReport')?.addEventListener('click', () => {
-      // Copy HTML to clipboard for pasting into email
-      const htmlContent = summary;
-      
-      // Try to copy as HTML first (for rich text paste)
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      const clipboardItem = new ClipboardItem({ 'text/html': blob });
-      
-      navigator.clipboard.write([clipboardItem])
-        .then(() => {
-          const btn = qs('btnCopyRadarReport');
-          const orig = btn.textContent;
-          btn.textContent = '✓ Copied!';
-          setTimeout(() => {
-            btn.textContent = orig;
-          }, 2000);
-        })
-        .catch((err) => {
-          console.error('Copy failed:', err);
-          alert('Failed to copy to clipboard');
-        });
-    });
+    const copyBtn = qs('btnCopyRadarReport');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => {
+        // Copy HTML to clipboard for pasting into email
+        const htmlContent = summary;
+
+        // Try to copy as HTML first (for rich text paste)
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const clipboardItem = new ClipboardItem({ 'text/html': blob });
+
+        navigator.clipboard
+          .write([clipboardItem])
+          .then(() => {
+            const btn = qs('btnCopyRadarReport');
+            const orig = btn.textContent;
+            btn.textContent = '✓ Copied!';
+            setTimeout(() => {
+              btn.textContent = orig;
+            }, 2000);
+          })
+          .catch((err) => {
+            console.error('Copy failed:', err);
+            alert('Failed to copy to clipboard');
+          });
+      });
+    }
 
     // Add print/PDF functionality
-    qs('btnPrintRadarReport')?.addEventListener('click', () => {
-      const printWindow = window.open('', '_blank');
-      const printContent = `
+    const printBtn = qs('btnPrintRadarReport');
+    if (printBtn) {
+      printBtn.addEventListener('click', () => {
+        const printWindow = window.open('', '_blank');
+        const printContent = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -2267,26 +2273,14 @@ async function generateReleaseRadarReport(selectedReleases) {
         </body>
         </html>
       `;
-      printWindow.document.write(printContent);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => {
-        printWindow.print();
-      }, 250);
-    });
-        .then(() => {
-          const btn = qs('btnCopyRadarReport');
-          const orig = btn.textContent;
-          btn.textContent = '✓ Copied!';
-          setTimeout(() => {
-            btn.textContent = orig;
-          }, 2000);
-        })
-        .catch((err) => {
-          console.error('Copy failed:', err);
-          alert('Failed to copy to clipboard');
-        });
-    });
+        printWindow.document.write(printContent);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+          printWindow.print();
+        }, 250);
+      });
+    }
   } catch (e) {
     console.error('Release Radar report error:', e);
     showModal(
