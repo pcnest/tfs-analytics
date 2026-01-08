@@ -2195,94 +2195,10 @@ async function generateReleaseRadarReport(selectedReleases) {
 
     const { summary, releases } = data;
 
-    // Build release table
-    const releasesTableHtml = `
-      <div style="margin:20px 0;">
-        <div style="font-size:16px; font-weight:600; margin-bottom:10px;">Release Health Details</div>
-        <div style="overflow-x:auto;">
-          <table style="width:100%; border-collapse:collapse; font-size:13px;">
-            <thead>
-              <tr style="background:#f5f5f5; border-bottom:2px solid #ddd;">
-                <th style="padding:8px; text-align:left;">Release</th>
-                <th style="padding:8px; text-align:center;">Confidence</th>
-                <th style="padding:8px; text-align:center;">QA</th>
-                <th style="padding:8px; text-align:center;">C/H/M/L</th>
-                <th style="padding:8px; text-align:center;">OnHold</th>
-                <th style="padding:8px; text-align:left;">Driver</th>
-                <th style="padding:8px; text-align:left;">Top Blockers</th>
-                <th style="padding:8px; text-align:center;">Decision</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${releases
-                .map((rel) => {
-                  const confColor =
-                    rel.confidencePct >= 80
-                      ? '#2e7d32'
-                      : rel.confidencePct >= 60
-                      ? '#e65100'
-                      : '#c62828';
-                  return `
-                <tr style="border-bottom:1px solid #eee;">
-                  <td style="padding:8px;">
-                    <div style="font-weight:500;">${escapeHtml(
-                      rel.release
-                    )}</div>
-                    <div style="font-size:11px; color:#666;">${escapeHtml(
-                      rel.project
-                    )}</div>
-                  </td>
-                  <td style="padding:8px; text-align:center; color:${confColor}; font-weight:600;">${
-                    rel.confidencePct
-                  }%</td>
-                  <td style="padding:8px; text-align:center;">${escapeHtml(
-                    rel.qaStatus || 'N/A'
-                  )}<br><span style="font-size:11px; color:#666;">(${
-                    rel.qaPct || 0
-                  }%)</span></td>
-                  <td style="padding:8px; text-align:center;">${
-                    rel.critical || 0
-                  }/${rel.high || 0}/${rel.medium || 0}/${rel.low || 0}</td>
-                  <td style="padding:8px; text-align:center; ${
-                    rel.onHold > 0 ? 'color:#e65100; font-weight:600;' : ''
-                  }">${rel.onHold || 0}</td>
-                  <td style="padding:8px; font-size:12px;">${escapeHtml(
-                    rel.confidenceDriver || '-'
-                  )}</td>
-                  <td style="padding:8px; font-size:12px;">${escapeHtml(
-                    rel.topBlockers || '-'
-                  )}</td>
-                  <td style="padding:8px; text-align:center; ${
-                    rel.decisionNeeded === 'Y'
-                      ? 'color:#c62828; font-weight:700;'
-                      : ''
-                  }">${escapeHtml(rel.decisionNeeded || 'N')}</td>
-                </tr>
-              `;
-                })
-                .join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-
-    // AI Summary section
-    const aiSummaryHtml = `
-      <div style="background:#e3f2fd; padding:15px; border-radius:8px; border-left:4px solid #2196f3; margin-bottom:20px;">
-        <div style="display:flex; align-items:center; margin-bottom:10px;">
-          <span style="font-size:20px; margin-right:8px;">🤖</span>
-          <div style="font-size:16px; font-weight:600; color:#1565c0;">AI-Assisted Executive Summary</div>
-        </div>
-        <div style="line-height:1.7; font-size:14px; white-space:pre-wrap;">${escapeHtml(
-          summary
-        )}</div>
-      </div>
-    `;
-
     const content = `
-      ${aiSummaryHtml}
-      ${releasesTableHtml}
+      <div style="line-height:1.7; font-size:14px;">
+        ${summary}
+      </div>
       <div style="margin-top:20px; padding-top:15px; border-top:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
         <div style="font-size:12px; color:#666;">
           Generated: ${new Date().toLocaleString()}
