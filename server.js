@@ -3155,8 +3155,14 @@ app.get('/api/ai/release-radar-report', async (req, res) => {
       });
     }
 
+    // Map project names to display names (same as release-health endpoint)
+    const mappedRows = rows.map((row) => ({
+      ...row,
+      project: mapProjectForRelease(row.release, row.project),
+    }));
+
     // Generate AI-assisted report
-    const report = await aiService.generateReleaseRadarReport(rows);
+    const report = await aiService.generateReleaseRadarReport(mappedRows);
 
     if (!report.ok) {
       return res.status(500).json({

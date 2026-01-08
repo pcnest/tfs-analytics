@@ -2203,33 +2203,77 @@ async function generateReleaseRadarReport(selectedReleases) {
         <div style="font-size:12px; color:#666;">
           Generated: ${new Date().toLocaleString()}
         </div>
-        <button id="btnCopyRadarReport" style="background:#4285f4; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
-          📋 Copy to Clipboard
-        </button>
+        <div style="display:flex; gap:8px;">
+          <button id="btnCopyRadarReport" style="background:#4285f4; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
+            📋 Copy HTML
+          </button>
+          <button id="btnPrintRadarReport" style="background:#34a853; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
+            🖨️ Print/PDF
+          </button>
+        </div>
       </div>
     `;
 
     showModal('📊 Release Radar Executive Report', content);
 
-    // Add copy functionality
+    // Add copy functionality (HTML format)
     qs('btnCopyRadarReport')?.addEventListener('click', () => {
-      const textContent = `RELEASE RADAR EXECUTIVE REPORT\nGenerated: ${new Date().toLocaleString()}\n\n${summary}\n\nRELEASE DETAILS:\n${releases
-        .map(
-          (r) =>
-            `\n${r.release} (${r.project})\n- Confidence: ${
-              r.confidencePct
-            }%\n- QA: ${r.qaStatus} (${r.qaPct}%)\n- Priorities: ${
-              r.critical
-            }C/${r.high}H/${r.medium}M/${r.low}L\n- OnHold: ${
-              r.onHold
-            }\n- Driver: ${r.confidenceDriver || 'N/A'}\n- Blockers: ${
-              r.topBlockers || 'None'
-            }\n- Decision Needed: ${r.decisionNeeded || 'N'}`
-        )
-        .join('\n')}`;
+      // Copy HTML to clipboard for pasting into email
+      const htmlContent = summary;
+      
+      // Try to copy as HTML first (for rich text paste)
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const clipboardItem = new ClipboardItem({ 'text/html': blob });
+      
+      navigator.clipboard.write([clipboardItem])
+        .then(() => {
+          const btn = qs('btnCopyRadarReport');
+          const orig = btn.textContent;
+          btn.textContent = '✓ Copied!';
+          setTimeout(() => {
+            btn.textContent = orig;
+          }, 2000);
+        })
+        .catch((err) => {
+          console.error('Copy failed:', err);
+          alert('Failed to copy to clipboard');
+        });
+    });
 
-      navigator.clipboard
-        .writeText(textContent)
+    // Add print/PDF functionality
+    qs('btnPrintRadarReport')?.addEventListener('click', () => {
+      const printWindow = window.open('', '_blank');
+      const printContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Release Radar Report - ${new Date().toLocaleDateString()}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; }
+            table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f5f5f5; font-weight: 600; }
+            h2, h3 { color: #333; }
+            @media print {
+              button { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          ${summary}
+          <div style="margin-top:30px; padding-top:15px; border-top:2px solid #ddd; font-size:12px; color:#666;">
+            Generated: ${new Date().toLocaleString()}
+          </div>
+        </body>
+        </html>
+      `;
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    });
         .then(() => {
           const btn = qs('btnCopyRadarReport');
           const orig = btn.textContent;
