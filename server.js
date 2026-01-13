@@ -1378,13 +1378,23 @@ app.get('/api/release-predictability', async (req, res) => {
 
 // ---------- Cleanup Old Releases (Soft Delete) ----------
 app.post('/api/cleanup-releases', async (req, res) => {
+  if (!requireApiKey(req, res)) return;
+
   if (!req.body.activeReleases || !Array.isArray(req.body.activeReleases)) {
     return res
       .status(400)
       .json({ ok: false, error: 'activeReleases array required' });
   }
 
-  const activeReleases = req.body.activeReleases;
+  const activeReleases = req.body.activeReleases
+    .map((release) => String(release).trim())
+    .filter(Boolean);
+
+  if (activeReleases.length === 0) {
+    return res
+      .status(400)
+      .json({ ok: false, error: 'activeReleases array required' });
+  }
 
   try {
     // Mark all work items NOT in the active releases list as deleted
@@ -2524,7 +2534,7 @@ app.get('/api/lean-workitems/export.csv', async (req, res) => {
   const lim = Math.min(Math.max(Number(limit) || 5000, 1), 20000);
   const off = Math.max(Number(offset) || 0, 0);
 
-  const where = [];
+  const where = ['is_deleted = FALSE'];
   const params = [];
   const add = (sql, val) => {
     params.push(val);

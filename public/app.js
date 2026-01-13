@@ -1452,6 +1452,72 @@ function escapeHtml(v) {
     .replaceAll("'", '&#039;');
 }
 
+function sanitizeAiHtml(html) {
+  const input = String(html ?? '');
+  if (!input) return '';
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(input, 'text/html');
+  const allowedTags = new Set([
+    'h2',
+    'h3',
+    'h4',
+    'p',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+    'br',
+    'strong',
+    'em',
+    'b',
+    'i',
+    'u',
+    'ul',
+    'ol',
+    'li',
+    'span',
+    'div',
+    'hr',
+  ]);
+  const allowedAttrs = {
+    table: new Set(['border', 'cellpadding', 'cellspacing']),
+    th: new Set(['colspan', 'rowspan']),
+    td: new Set(['colspan', 'rowspan']),
+  };
+
+  const nodes = [];
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
+  while (walker.nextNode()) {
+    nodes.push(walker.currentNode);
+  }
+
+  nodes.forEach((node) => {
+    const tag = node.tagName.toLowerCase();
+    if (!allowedTags.has(tag)) {
+      const parent = node.parentNode;
+      if (!parent) return;
+      while (node.firstChild) {
+        parent.insertBefore(node.firstChild, node);
+      }
+      parent.removeChild(node);
+      return;
+    }
+
+    const allowed = allowedAttrs[tag];
+    Array.from(node.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      if (!allowed || !allowed.has(name)) {
+        node.removeAttribute(attr.name);
+      }
+    });
+  });
+
+  return doc.body.innerHTML;
+}
+
 function formatBlockers(text, idsRaw) {
   // New format: "Type ID - Title | Type ID - Title"
   // The SQL view now provides formatted text like "Bug 12345 - Title"
@@ -2194,10 +2260,11 @@ async function generateReleaseRadarReport(selectedReleases) {
     }
 
     const { summary, releases } = data;
+    const sanitizedSummary = sanitizeAiHtml(summary);
 
     const content = `
-      <div style="line-height:1.7; font-size:14px;">
-        ${summary}
+      <div class="ai-report">
+        ${sanitizedSummary}
       </div>
       <div style="margin-top:20px; padding-top:15px; border-top:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
         <div style="font-size:12px; color:#666;">
@@ -2221,7 +2288,7 @@ async function generateReleaseRadarReport(selectedReleases) {
     if (copyBtn) {
       copyBtn.addEventListener('click', () => {
         // Copy HTML to clipboard for pasting into email
-        const htmlContent = summary;
+        const htmlContent = sanitizedSummary;
 
         // Try to copy as HTML first (for rich text paste)
         const blob = new Blob([htmlContent], { type: 'text/html' });
@@ -2255,18 +2322,60 @@ async function generateReleaseRadarReport(selectedReleases) {
         <head>
           <title>Release Radar Report - ${new Date().toLocaleDateString()}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            table { border-collapse: collapse; width: 100%; margin: 20px 0; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background-color: #f5f5f5; font-weight: 600; }
-            h2, h3 { color: #333; }
+            body {
+              font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+              padding: 20px;
+              color: #1f2933;
+            }
+            .ai-report {
+              font-size: 14px;
+              line-height: 1.7;
+            }
+            .ai-report h2 {
+              margin: 0 0 12px;
+              font-size: 20px;
+              color: #0f172a;
+            }
+            .ai-report h3 {
+              margin: 18px 0 8px;
+              font-size: 16px;
+              color: #0f172a;
+            }
+            .ai-report p {
+              margin: 0 0 10px;
+            }
+            .ai-report table {
+              border-collapse: collapse;
+              width: 100%;
+              margin: 12px 0 18px;
+            }
+            .ai-report th,
+            .ai-report td {
+              border: 1px solid #e2e8f0;
+              padding: 8px 10px;
+              text-align: left;
+              vertical-align: top;
+              font-size: 13px;
+            }
+            .ai-report th {
+              background-color: #f5f7fb;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.3px;
+              font-size: 11px;
+            }
+            .ai-report tbody tr:nth-child(even) {
+              background: #fafafa;
+            }
             @media print {
               button { display: none; }
             }
           </style>
         </head>
         <body>
-          ${summary}
+          <div class="ai-report">
+            ${sanitizedSummary}
+          </div>
           <div style="margin-top:30px; padding-top:15px; border-top:2px solid #ddd; font-size:12px; color:#666;">
             Generated: ${new Date().toLocaleString()}
           </div>
