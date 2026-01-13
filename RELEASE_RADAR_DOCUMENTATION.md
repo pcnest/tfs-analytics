@@ -16,18 +16,38 @@ The Release Radar is designed for stakeholders who need to quickly assess portfo
 
 **How it's computed:**
 
-- Derived from a weighted combination of multiple health signals including:
-  - Scope stability (low churn = higher confidence)
-  - QA pass rate (higher pass rate = higher confidence)
-  - Blocked work items (fewer blocked items = higher confidence)
-  - Critical/high priority bugs (fewer critical bugs = higher confidence)
-  - Historical velocity trends (consistent delivery = higher confidence)
+The confidence score uses the following formula:
+
+```
+Base: 100%
+Penalties:
+  - Each Critical item: -20%
+  - Each High item: -8%
+  - Each OnHold/Blocked item: -5%
+  - QA failures: up to -30% (based on failure rate)
+
+Edge Cases:
+  - No items in release: 0% (nothing to release)
+  - Items exist but not in QA: 50% max (untested work)
+  - QA pass rate = 0%: apply full -30% penalty
+```
+
+**Calculation Logic:**
+
+1. If release has **no work items** → Confidence = **0%** (empty release)
+2. If release has **items but QA coverage = 0** → Confidence = **50% max** (untested)
+3. Otherwise, start at 100% and subtract:
+   - Critical items × 20
+   - High items × 8
+   - OnHold items × 5
+   - QA failure percentage × 30
 
 **Interpretation:**
 
 - **80-100%** (🟢 Green): High confidence - release is on track
 - **60-79%** (🟡 Yellow): Medium confidence - some concerns, monitor closely
-- **0-59%** (🔴 Red): Low confidence - significant risks, intervention needed
+- **50-59%** (🟠 Orange): Untested or risky - requires QA coverage or issue resolution
+- **0-49%** (🔴 Red): Low/No confidence - significant risks, intervention needed
 
 **Relevance:**
 The Confidence score is the **primary health indicator** for executives. It synthesizes complex project data into a single, actionable metric. A declining confidence score should trigger stakeholder conversations and mitigation planning.
@@ -193,14 +213,12 @@ Top Blockers enable **direct action**. Instead of abstract metrics, stakeholders
 
 - Rule-based logic evaluates multiple conditions:
 
-```javascript
+```sql
 Decision = 'Y' if ANY of:
   - Confidence < 60%
-  - Critical bugs > 0 within 7 days of planned ship date
-  - OnHold items > 15% of total scope
-  - QA% < 50% within 14 days of planned ship date
-  - Scope stability < 70% (high churn)
-  - Custom business rules (e.g., regulatory blockers)
+  - Critical bugs > 0
+  - OnHold items > 0
+  - QA pass rate < 50%
 Otherwise Decision = 'N'
 ```
 
@@ -212,10 +230,18 @@ Otherwise Decision = 'N'
 **Relevance:**
 Decision flags act as an **early warning system**. They ensure critical releases don't slip through the cracks and force proactive conversations before problems escalate. A "Y" decision triggers specific workflows:
 
-- Schedule war room/checkpoint meeting
+- Schedule checkpoint meeting with stakeholders
 - Review scope reduction options
 - Evaluate slip date vs. ship-with-known-issues tradeoffs
-- Escalate to executive leadership
+- Escalate blocked items to leadership
+- Assess critical bug impact on release timeline
+
+**Why these thresholds:**
+
+- **Any Critical bugs** = potential showstopper, requires PO sign-off to ship
+- **Any OnHold items** = blocked work needs resolution or descope decision
+- **Confidence < 60%** = too risky to release without intervention
+- **QA < 50%** = insufficient testing coverage for confident release
 
 ---
 
@@ -395,13 +421,17 @@ GET /api/release-health/export.csv?release=18.4
 ### Generate AI-Assisted Release Radar Report
 
 ```bash
-POST /api/generate-release-radar-report
-{
-  "releases": ["18.4", "18.5", "80.1.6"]
-}
+GET /api/ai/release-radar-report?releases=18.4,18.5,80.1.6
 ```
 
 Returns an executive summary with AI-generated insights, risk assessment, and recommendations.
+
+**Report layout notes:**
+- **Project Release Status** table columns: Project | Release | Confidence | QA Pass Rate | Signals
+  - Release shows the release name only (no status emoji).
+  - QA Pass Rate format: `pass / total (pct%)` (e.g., `12 / 20 (60%)`).
+- **Release Confidence Analysis** table columns: Project | Release | Status | Insights
+  - Status includes the emoji with the classification (e.g., "🟢 Go", "🟠 Watch", "🔴 No-Go").
 
 ---
 
