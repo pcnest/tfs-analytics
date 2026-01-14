@@ -238,13 +238,26 @@ async function loadReadinessScorecard() {
     body.innerHTML = '<div class="muted">Loading...</div>';
     card.style.display = 'block';
 
-    const r = await fetch(
-      `/api/release-readiness-scorecard?release=${encodeURIComponent(release)}`
-    );
+    const scoreUrl = `/api/release-readiness-scorecard?release=${encodeURIComponent(
+      release
+    )}`;
+    const trendsUrl = `/api/release-health-trends?release=${encodeURIComponent(
+      release
+    )}`;
+
+    const [r, trendsR] = await Promise.all([
+      fetch(scoreUrl),
+      fetch(trendsUrl),
+    ]);
     const j = await r.json();
+    const trendsJson = await trendsR.json().catch(() => ({}));
+    const trendRow =
+      trendsR.ok && trendsJson.ok && Array.isArray(trendsJson.rows)
+        ? trendsJson.rows[0] || null
+        : null;
 
     if (r.ok && j.ok) {
-      displayReadinessScorecard(j);
+      displayReadinessScorecard(j, trendRow);
     } else {
       body.innerHTML = `<div class="muted">Error: ${
         j.error || 'Failed to load'
@@ -256,7 +269,7 @@ async function loadReadinessScorecard() {
   }
 }
 
-function displayReadinessScorecard(data) {
+function displayReadinessScorecard(data, trendRow) {
   const body = qs('readiness-scorecard-body');
   if (!body) return;
 
@@ -267,6 +280,62 @@ function displayReadinessScorecard(data) {
     if (status === 'red') return '🔴';
     return '⚪';
   };
+
+  const formatSnapshotTime = (v) => {
+    if (!v) return null;
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return String(v);
+    return d.toLocaleString();
+  };
+
+  const buildConfidenceDeltaBadge = (trend) => {
+    if (!trend) return '';
+
+    const hasPrev =
+      trend.previous_confidence !== null &&
+      trend.previous_confidence !== undefined;
+    const change = Number(trend.confidence_change);
+    const trendLabel = trend.trend ? String(trend.trend) : '';
+
+    let text = '';
+    let color = '#666';
+    let bgColor = '#f5f5f5';
+
+    if (!hasPrev && trendLabel === 'new') {
+      text = 'new';
+    } else if (Number.isFinite(change)) {
+      const sign = change > 0 ? '+' : '';
+      text = `${sign}${change}`;
+      if (change > 0) {
+        color = '#2e7d32';
+        bgColor = '#e8f5e9';
+      } else if (change < 0) {
+        color = '#c62828';
+        bgColor = '#ffebee';
+      }
+    } else {
+      text = 'N/A';
+    }
+
+    if (trendLabel && trendLabel !== 'stable' && trendLabel !== 'new') {
+      text = `${text} ${trendLabel}`;
+    }
+
+    const prevTime = formatSnapshotTime(trend.prev_snapshot_at);
+    const tooltipParts = [];
+    if (hasPrev) tooltipParts.push(`Prev: ${trend.previous_confidence}%`);
+    if (prevTime) tooltipParts.push(`at ${prevTime}`);
+    const tooltip = tooltipParts.join(' ');
+
+    return `
+      <span
+        style="display:inline-flex; align-items:center; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; color:${color}; background:${bgColor}; margin-left:6px;"
+        title="${escapeHtml(tooltip)}"
+      >${escapeHtml(text)}</span>
+    `;
+  };
+
+  const confidenceDeltaBadge = buildConfidenceDeltaBadge(trendRow);
 
   const warningsHtml =
     warnings && warnings.length > 0
@@ -334,6 +403,7 @@ function displayReadinessScorecard(data) {
             : 'N/A'
         }
         ${getStatusIcon(metrics.confidence?.status)}
+        ${confidenceDeltaBadge}
       </span>
     </div>
     <div class="metric-row">
@@ -969,15 +1039,24 @@ async function loadReleaseHealth() {
   if (rel && String(rel).trim() !== '') params.set('release', rel);
 
   const url = `/api/release-health${params.toString() ? `?${params}` : ''}`;
+  const trendsUrl = `/api/release-health-trends${
+    params.toString() ? `?${params}` : ''
+  }`;
 
   try {
-    const r = await fetch(url);
+    const [r, trendsR] = await Promise.all([fetch(url), fetch(trendsUrl)]);
 
     let data = null;
+    let trendsData = null;
     try {
       data = await r.json();
     } catch {
       data = {};
+    }
+    try {
+      trendsData = await trendsR.json();
+    } catch {
+      trendsData = {};
     }
 
     if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
@@ -988,11 +1067,37 @@ async function loadReleaseHealth() {
       return;
     }
 
+    const trendsRows =
+      trendsR.ok && trendsData.ok ? trendsData.rows || [] : [];
+    const trendsByRelease = new Map(
+      trendsRows.map((row) => [String(row.release || ''), row])
+    );
+
     const rows = data.rows || [];
     if (!rows.length) {
       el.textContent = data.message || 'No data.';
       return;
     }
+
+    const formatConfidenceDelta = (trendRow) => {
+      if (
+        !trendRow ||
+        trendRow.confidence_change === null ||
+        trendRow.confidence_change === undefined
+      ) {
+        return { text: 'N/A', color: '#666' };
+      }
+      const change = Number(trendRow.confidence_change);
+      if (!Number.isFinite(change)) return { text: 'N/A', color: '#666' };
+      const sign = change > 0 ? '+' : '';
+      const suffix =
+        trendRow.trend && trendRow.trend !== 'stable'
+          ? ` (${trendRow.trend})`
+          : '';
+      const text = `${sign}${change}${suffix}`;
+      const color = change > 0 ? '#2e7d32' : change < 0 ? '#c62828' : '#666';
+      return { text, color };
+    };
 
     el.innerHTML = `
       <table class="table">
@@ -1001,6 +1106,7 @@ async function loadReleaseHealth() {
             <th>Project</th>
             <th>Release</th>
             <th>Confidence</th>
+            <th>Delta</th>
             <th>QA</th>
             <th>C/H/M/L</th>
             <th>OnHold</th>
@@ -1013,11 +1119,17 @@ async function loadReleaseHealth() {
         <tbody>
           ${rows
             .map(
-              (x) => `
+              (x) => {
+                const trend = trendsByRelease.get(String(x.release || ''));
+                const delta = formatConfidenceDelta(trend);
+                return `
             <tr>
               <td>${escapeHtml(x.project)}</td>
               <td>${escapeHtml(x.release)}</td>
               <td>${x.confidencePct ?? ''}%</td>
+              <td><span style="color:${delta.color}; font-weight:600;">${escapeHtml(
+                delta.text
+              )}</span></td>
               <td>${escapeHtml(x.qaStatus ?? '')} (${x.qaPct ?? ''}%)</td>
               <td>${x.critical}/${x.high}/${x.medium}/${x.low}</td>
               <td>${x.onHold}</td>
@@ -1026,7 +1138,8 @@ async function loadReleaseHealth() {
               <td>${formatBlockers(x.topBlockers, x.topBlockerIds)}</td>
               <td>${escapeHtml(x.decisionNeeded ?? '')}</td>
             </tr>
-          `
+          `;
+              }
             )
             .join('')}
         </tbody>
