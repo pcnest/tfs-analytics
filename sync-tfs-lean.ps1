@@ -21,7 +21,7 @@ param(
   [string]   $Collection = "SupplyPro.Applications",
   [string]   $Project = "SupplyPro.Core",
   [string]   $ApiVersion = "2.0",
-  [string[]] $ReleaseTargets = @("80.1.6", "80.1.5.23", "18.4", "18.4.20", "5.0.5", "4.3.29"),
+  [string[]] $ReleaseTargets = @("80.1.6.6", "80.1.6.7", "80.1.5.23", "80.1.5.24", "18.4.20", "18.4.21", "18.4.22", "5.0.6.1", "4.3.29.1"),
   [int]      $ChunkSize = 150,
   [switch]   $UseServerTime,
   [int]      $RecentChangedDays = 7,
@@ -90,17 +90,66 @@ function Get-UPN {
   return $s
 }
 
+function Get-VersionSegments {
+  param([string]$v)
+  if ([string]::IsNullOrWhiteSpace($v)) { return @() }
+  $nums = [regex]::Matches($v, "\d+")
+  $segs = @()
+  foreach ($m in $nums) { $segs += [int]$m.Value }
+  return $segs
+}
+
+function Compare-Version {
+  param([string]$A, [string]$B)
+  $aSeg = Get-VersionSegments $A
+  $bSeg = Get-VersionSegments $B
+  $len = [Math]::Max($aSeg.Count, $bSeg.Count)
+  for ($i = 0; $i -lt $len; $i++) {
+    $aVal = if ($i -lt $aSeg.Count) { $aSeg[$i] } else { 0 }
+    $bVal = if ($i -lt $bSeg.Count) { $bSeg[$i] } else { 0 }
+    if ($aVal -gt $bVal) { return 1 }
+    if ($aVal -lt $bVal) { return -1 }
+  }
+  return 0
+}
+
 function Find-ReleaseInTags {
   param([string]$Tags, [string[]]$Targets)
   if ([string]::IsNullOrWhiteSpace($Tags) -or -not $Targets -or $Targets.Count -eq 0) { return $null }
   $parts = ($Tags.ToLowerInvariant() -split "[;\r\n,\|\s]+") | Where-Object { $_ -and $_.Trim() -ne "" } | ForEach-Object { $_.Trim() }
+  $matches = @()
   foreach ($rt in $Targets) {
     $r = $rt.ToLowerInvariant()
     foreach ($p in $parts) {
-      if ($p -eq $r -or $p.StartsWith($r)) { return $rt }
+      if ($p -eq $r -or $p.StartsWith($r)) {
+        $matches += $rt
+        break
+      }
     }
   }
-  return $null
+  if ($matches.Count -eq 0) { return $null }
+  $best = $matches[0]
+  foreach ($m in $matches) {
+    if ((Compare-Version $m $best) -gt 0) { $best = $m }
+  }
+  return $best
+}
+
+function Get-NormalizedReleaseTargets {
+  param([string[]]$Targets)
+  if (-not $Targets -or $Targets.Count -eq 0) { return @() }
+  $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+  foreach ($t in $Targets) {
+    if ([string]::IsNullOrWhiteSpace($t)) { continue }
+    $trimmed = $t.Trim()
+    [void]$set.Add($trimmed)
+    $lastDot = $trimmed.LastIndexOf('.')
+    if ($lastDot -gt 0) {
+      $base = $trimmed.Substring(0, $lastDot)
+      if (-not [string]::IsNullOrWhiteSpace($base)) { [void]$set.Add($base) }
+    }
+  }
+  return @($set)
 }
 
 function Invoke-TfsWiql {
@@ -161,7 +210,7 @@ function Invoke-CleanupOldReleases {
     return
   }
   
-  Write-Host "Marking releases not in ReleaseTargets as deleted..."
+  Write-Host "Marking releases not in active releases as deleted..."
   
   $cleanupUrl = "$IngestUrl".Replace("/api/tfs-weekly-sync", "/api/cleanup-releases")
   $headers = @{
@@ -185,6 +234,32 @@ function Invoke-CleanupOldReleases {
   catch {
     Write-Warning "Failed to cleanup old releases: $($_.Exception.Message)"
   }
+}
+
+function Get-LastSyncWatermark {
+  param([string]$IngestUrl, [string]$SyncKey)
+  if ([string]::IsNullOrWhiteSpace($IngestUrl)) { return $null }
+
+  $watermarkUrl = $null
+  if ($IngestUrl -match '^(.+)/api/tfs-weekly-sync$') {
+    $watermarkUrl = "$($Matches[1])/api/last-sync-watermark"
+  }
+  else {
+    $watermarkUrl = $IngestUrl -replace '/tfs-weekly-sync$', '/last-sync-watermark'
+  }
+
+  if ([string]::IsNullOrWhiteSpace($watermarkUrl)) { return $null }
+
+  try {
+    $resp = Invoke-RestMethod -Method Get -Uri $watermarkUrl -Headers @{ "x-api-key" = $SyncKey } -TimeoutSec 30
+    if ($resp.ok -and $resp.lastChangedDate) {
+      return ([datetime]$resp.lastChangedDate).ToUniversalTime()
+    }
+  }
+  catch {
+    Write-Warning "Failed to fetch last-sync watermark: $($_.Exception.Message)"
+  }
+  return $null
 }
 
 function Send-Ingest {
@@ -247,23 +322,38 @@ function Get-ExtractWorkItemIdFromUrl {
 
 
 # ---------- WIQL ----------
-# Cleanup old releases before syncing
-Invoke-CleanupOldReleases -ActiveReleases $ReleaseTargets
+$ActiveReleaseTargets = Get-NormalizedReleaseTargets -Targets $ReleaseTargets
 
-if ($ReleaseTargets.Count -gt 0) {
-  $tagConds = $ReleaseTargets | ForEach-Object { "[System.Tags] CONTAINS '$_'" }
-  $tagFilter = " AND (" + ($tagConds -join " OR ") + ")"
+$recentCutoff = $null
+$watermark = Get-LastSyncWatermark -IngestUrl $IngestUrl -SyncKey $SyncKey
+if ($watermark) {
+  $recentCutoff = $watermark
+  Write-Host "Using last-sync watermark: $($recentCutoff.ToString('o'))"
 }
-else {
-  $tagFilter = ""
+elseif ($RecentChangedDays -gt 0) {
+  $recentCutoff = (Get-Date).ToUniversalTime().AddDays(-1 * $RecentChangedDays)
+  Write-Host "Using recent-changed cutoff (days=$RecentChangedDays): $($recentCutoff.ToString('o'))"
 }
+
+# Cleanup old releases before syncing
+Invoke-CleanupOldReleases -ActiveReleases $ActiveReleaseTargets
+
+$wiqlFilters = @()
+if ($ActiveReleaseTargets.Count -gt 0) {
+  $tagConds = $ActiveReleaseTargets | ForEach-Object { "[System.Tags] CONTAINS '$_'" }
+  $wiqlFilters += "(" + ($tagConds -join " OR ") + ")"
+}
+if ($recentCutoff) {
+  $wiqlFilters += "[System.ChangedDate] >= '$($recentCutoff.ToString('o'))'"
+}
+$tagFilter = if ($wiqlFilters.Count -gt 0) { " AND (" + ($wiqlFilters -join " OR ") + ")" } else { "" }
 
 $wiqlText = @"
 SELECT [System.Id]
 FROM WorkItems
 WHERE [System.TeamProject] = @project
   AND [System.WorkItemType] IN ('Product Backlog Item','Bug','Task','Feature')
-  AND [System.State] <> 'Removed'$tagFilter
+$tagFilter
 ORDER BY [System.ChangedDate] DESC
 "@
 
@@ -278,19 +368,15 @@ Write-Host "Fetched $($items.Count) work items"
 
 # ---------- Normalize + relation counts ----------
 $modelItems = @()
-$recentCutoff = $null
-if ($RecentChangedDays -gt 0) {
-  $recentCutoff = (Get-Date).ToUniversalTime().AddDays(-1 * $RecentChangedDays)
-}
 
 foreach ($wi in $items) {
   $fields = $wi.fields
 
   $tags = $fields.'System.Tags'
-  $release = Find-ReleaseInTags -Tags $tags -Targets $ReleaseTargets
+  $release = Find-ReleaseInTags -Tags $tags -Targets $ActiveReleaseTargets
 
   # enforce release filter like your M query, but keep recently changed items too
-  if ($ReleaseTargets.Count -gt 0 -and -not $ReleaseTargets.Contains($release)) {
+  if ($ActiveReleaseTargets.Count -gt 0 -and -not ($ActiveReleaseTargets -contains $release)) {
     if ($null -eq $recentCutoff) { continue }
     $changedDate = $fields.'System.ChangedDate'
     if ($null -eq $changedDate) { continue }

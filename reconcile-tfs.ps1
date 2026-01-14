@@ -41,6 +41,68 @@ if ([string]::IsNullOrWhiteSpace($SyncKey)) { throw "Set env var SYNC_API_KEY." 
 $authHeader = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":" + $Pat))
 $commonHeaders = @{ Authorization = $authHeader }
 
+function Get-VersionSegments {
+  param([string]$v)
+  if ([string]::IsNullOrWhiteSpace($v)) { return @() }
+  $nums = [regex]::Matches($v, "\d+")
+  $segs = @()
+  foreach ($m in $nums) { $segs += [int]$m.Value }
+  return $segs
+}
+
+function Compare-Version {
+  param([string]$A, [string]$B)
+  $aSeg = Get-VersionSegments $A
+  $bSeg = Get-VersionSegments $B
+  $len = [Math]::Max($aSeg.Count, $bSeg.Count)
+  for ($i = 0; $i -lt $len; $i++) {
+    $aVal = if ($i -lt $aSeg.Count) { $aSeg[$i] } else { 0 }
+    $bVal = if ($i -lt $bSeg.Count) { $bSeg[$i] } else { 0 }
+    if ($aVal -gt $bVal) { return 1 }
+    if ($aVal -lt $bVal) { return -1 }
+  }
+  return 0
+}
+
+function Find-ReleaseInTags {
+  param([string]$Tags, [string[]]$Targets)
+  if ([string]::IsNullOrWhiteSpace($Tags) -or -not $Targets -or $Targets.Count -eq 0) { return $null }
+  $parts = ($Tags.ToLowerInvariant() -split "[;\r\n,\|\s]+") | Where-Object { $_ -and $_.Trim() -ne "" } | ForEach-Object { $_.Trim() }
+  $matches = @()
+  foreach ($rt in $Targets) {
+    $r = $rt.ToLowerInvariant()
+    foreach ($p in $parts) {
+      if ($p -eq $r -or $p.StartsWith($r)) {
+        $matches += $rt
+        break
+      }
+    }
+  }
+  if ($matches.Count -eq 0) { return $null }
+  $best = $matches[0]
+  foreach ($m in $matches) {
+    if ((Compare-Version $m $best) -gt 0) { $best = $m }
+  }
+  return $best
+}
+
+function Get-NormalizedReleaseTargets {
+  param([string[]]$Targets)
+  if (-not $Targets -or $Targets.Count -eq 0) { return @() }
+  $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+  foreach ($t in $Targets) {
+    if ([string]::IsNullOrWhiteSpace($t)) { continue }
+    $trimmed = $t.Trim()
+    [void]$set.Add($trimmed)
+    $lastDot = $trimmed.LastIndexOf('.')
+    if ($lastDot -gt 0) {
+      $base = $trimmed.Substring(0, $lastDot)
+      if (-not [string]::IsNullOrWhiteSpace($base)) { [void]$set.Add($base) }
+    }
+  }
+  return @($set)
+}
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "TFS Analytics Reconciliation Check" -ForegroundColor Cyan
 Write-Host "Sample Size: $SampleSize" -ForegroundColor Cyan
@@ -49,8 +111,9 @@ Write-Host ""
 
 # ---------- Fetch sample IDs from TFS ----------
 $tagFilter = ""
-if ($ReleaseTargets.Count -gt 0) {
-  $tagConds = $ReleaseTargets | ForEach-Object { "[System.Tags] CONTAINS '$_'" }
+$ActiveReleaseTargets = Get-NormalizedReleaseTargets -Targets $ReleaseTargets
+if ($ActiveReleaseTargets.Count -gt 0) {
+  $tagConds = $ActiveReleaseTargets | ForEach-Object { "[System.Tags] CONTAINS '$_'" }
   $tagFilter = " AND (" + ($tagConds -join " OR ") + ")"
 }
 
@@ -59,7 +122,7 @@ SELECT [System.Id]
 FROM WorkItems
 WHERE [System.TeamProject] = @project
   AND [System.WorkItemType] IN ('Product Backlog Item','Bug','Task','Feature')
-  AND [System.State] <> 'Removed'$tagFilter
+$tagFilter
 ORDER BY [System.ChangedDate] DESC
 "@
 
@@ -101,12 +164,19 @@ else {
 
 Write-Host "API URL: $apiUrl" -ForegroundColor Gray
 
-# Build full URI with query string
-$fullUri = $apiUrl + "?limit=1000"
-Write-Host "Full URI: $fullUri" -ForegroundColor Gray
-
-$dbResp = Invoke-RestMethod -Method Get -Uri $fullUri -Headers @{ "x-api-key" = $SyncKey }
-$dbItems = $dbResp.rows
+# Pull all DB rows (paged)
+$limit = 1000
+$offset = 0
+$dbItems = @()
+$totalCount = $null
+do {
+  $fullUri = $apiUrl + "?limit=$limit&offset=$offset"
+  Write-Host "Full URI: $fullUri" -ForegroundColor Gray
+  $dbResp = Invoke-RestMethod -Method Get -Uri $fullUri -Headers @{ "x-api-key" = $SyncKey }
+  if ($null -eq $totalCount) { $totalCount = $dbResp.count }
+  if ($dbResp.rows) { $dbItems += $dbResp.rows }
+  $offset += $limit
+} while ($totalCount -gt 0 -and $dbItems.Count -lt $totalCount)
 
 # Create lookup by work_item_id
 $dbLookup = @{}
@@ -146,6 +216,7 @@ foreach ($tfsItem in $tfsItems) {
   
   $tfsState = $tfsItem.fields.'System.State'
   $tfsType = $tfsItem.fields.'System.WorkItemType'
+  $tfsRelease = Find-ReleaseInTags -Tags $tfsItem.fields.'System.Tags' -Targets $ActiveReleaseTargets
   
   if ($dbItem.title -ne $tfsTitle) {
     $mismatches += [PSCustomObject]@{
@@ -181,6 +252,17 @@ foreach ($tfsItem in $tfsItems) {
     Write-Host "❌ MISMATCH: Work item $id type differs" -ForegroundColor Yellow
     Write-Host "   TFS: '$tfsType'" -ForegroundColor Gray
     Write-Host "   DB:  '$($dbItem.type)'" -ForegroundColor Gray
+  }
+  if ($dbItem.release -ne $tfsRelease) {
+    $mismatches += [PSCustomObject]@{
+      WorkItemId = $id
+      Field      = "Release"
+      TfsValue   = $tfsRelease
+      DbValue    = $dbItem.release
+    }
+    Write-Host "? MISMATCH: Work item $id release differs" -ForegroundColor Yellow
+    Write-Host "   TFS: '$tfsRelease'" -ForegroundColor Gray
+    Write-Host "   DB:  '$($dbItem.release)'" -ForegroundColor Gray
   }
 }
 
