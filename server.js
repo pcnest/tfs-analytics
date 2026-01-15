@@ -2428,7 +2428,7 @@ app.get('/api/lean-workitems', async (req, res) => {
     : [];
 
   if (releaseList.length > 0) {
-    add('release = ANY(?)', releaseList);
+    add('release = ANY(?::text[])', releaseList);
   } else if (release) {
     add('release = ?', String(release));
   }

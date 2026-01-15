@@ -1761,8 +1761,9 @@ function triggerExportCsv(selectedReleases) {
     }
   }
 
-  // export uses same filters, but we usually want a bigger limit
-  if (!params.get('limit')) params.set('limit', '5000');
+  // export should ignore paging and use a larger limit
+  params.set('offset', '0');
+  params.set('limit', '20000');
   window.location.href = `/api/lean-workitems/export.csv?${params.toString()}`;
 }
 
