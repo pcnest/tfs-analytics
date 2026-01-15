@@ -2399,6 +2399,7 @@ app.get('/api/lean-workitems', async (req, res) => {
   const {
     q,
     release,
+    releases,
     assignedToUPN,
     state,
     type,
@@ -2419,7 +2420,18 @@ app.get('/api/lean-workitems', async (req, res) => {
     where.push(sql.replace('?', `$${params.length}`));
   };
 
-  if (release) add('release = ?', String(release));
+  const releaseList = releases
+    ? String(releases)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+    : [];
+
+  if (releaseList.length > 0) {
+    add('release = ANY(?)', releaseList);
+  } else if (release) {
+    add('release = ?', String(release));
+  }
   if (assignedToUPN) add('assigned_to_upn = ?', String(assignedToUPN));
   if (state) add('state = ?', String(state));
   if (type) add('type = ?', String(type));

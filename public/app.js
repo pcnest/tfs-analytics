@@ -1748,11 +1748,131 @@ qs('btnLoad').addEventListener('click', async () => {
   loadReleaseCycle(qs('release')?.value);
 });
 
-qs('btnExport').addEventListener('click', () => {
+function triggerExportCsv(selectedReleases) {
   const params = buildParams();
+  params.delete('release');
+  params.delete('releases');
+
+  if (Array.isArray(selectedReleases) && selectedReleases.length > 0) {
+    if (selectedReleases.length === 1) {
+      params.set('release', selectedReleases[0]);
+    } else {
+      params.set('releases', selectedReleases.join(','));
+    }
+  }
+
   // export uses same filters, but we usually want a bigger limit
   if (!params.get('limit')) params.set('limit', '5000');
   window.location.href = `/api/lean-workitems/export.csv?${params.toString()}`;
+}
+
+qs('btnExport').addEventListener('click', async () => {
+  showModalLoading('Select Releases');
+
+  try {
+    const r = await fetch('/api/releases');
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) {
+      showModal(
+        'Error',
+        `<div style="color:#c62828;">${escapeHtml(
+          data.error || 'Failed to load releases'
+        )}</div>`
+      );
+      return;
+    }
+
+    const releases = data.releases || [];
+    if (releases.length === 0) {
+      showModal('No Releases', '<div>No releases found</div>');
+      return;
+    }
+
+    const currentRelease = (qs('release')?.value || '').trim();
+    const hasCurrent = currentRelease && releases.includes(currentRelease);
+    const defaultSelectAll = !hasCurrent;
+
+    const selectorHtml = `
+      <div style="margin-bottom:15px;">
+        <p style="color:#666; font-size:14px;">Select releases to export. Other filters (search/state/etc.) still apply.</p>
+      </div>
+      <div style="max-height:400px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px; padding:10px;">
+        <label style="display:flex; align-items:center; padding:8px; margin-bottom:5px; cursor:pointer; border-radius:4px; background:#f9f9f9;">
+          <input type="checkbox" id="selectAllExportReleases" style="margin-right:10px; transform:scale(1.2);" ${
+            defaultSelectAll ? 'checked' : ''
+          }>
+          <strong>Select All (${releases.length} releases)</strong>
+        </label>
+        <hr style="margin:10px 0; border:none; border-top:1px solid #e0e0e0;">
+        ${releases
+          .map((rel) => {
+            const checked = defaultSelectAll || rel === currentRelease;
+            return `
+          <label style="display:flex; align-items:center; padding:8px; margin-bottom:5px; cursor:pointer; border-radius:4px; transition:background 0.2s;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">
+            <input type="checkbox" class="export-release-checkbox" value="${escapeHtml(
+              rel
+            )}" style="margin-right:10px; transform:scale(1.2);" ${
+              checked ? 'checked' : ''
+            }>
+            <div style="flex:1;">
+              <div style="font-weight:500;">${escapeHtml(rel)}</div>
+            </div>
+          </label>
+        `;
+          })
+          .join('')}
+      </div>
+      <div style="margin-top:20px; display:flex; gap:10px; justify-content:flex-end;">
+        <button id="btnCancelExport" style="background:#666; color:white;">Cancel</button>
+        <button id="btnGenerateExport" style="background:#4285f4; color:white;">Export CSV</button>
+      </div>
+    `;
+
+    showModal('Select Releases for Export', selectorHtml);
+
+    const selectAll = qs('selectAllExportReleases');
+    const checkboxes = document.querySelectorAll('.export-release-checkbox');
+    const btnGenerate = qs('btnGenerateExport');
+    const btnCancel = qs('btnCancelExport');
+
+    selectAll.addEventListener('change', () => {
+      checkboxes.forEach((cb) => {
+        cb.checked = selectAll.checked;
+      });
+    });
+
+    checkboxes.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const allChecked = Array.from(checkboxes).every((c) => c.checked);
+        selectAll.checked = allChecked;
+      });
+    });
+
+    btnCancel.addEventListener('click', hideModal);
+
+    btnGenerate.addEventListener('click', () => {
+      const selectedReleases = Array.from(checkboxes)
+        .filter((cb) => cb.checked)
+        .map((cb) => cb.value);
+
+      if (selectedReleases.length === 0) {
+        alert('Please select at least one release');
+        return;
+      }
+
+      hideModal();
+      triggerExportCsv(selectedReleases);
+    });
+  } catch (e) {
+    console.error('Export selector error:', e);
+    showModal(
+      'Error',
+      `<div style="color:#c62828;">Failed to load releases: ${escapeHtml(
+        String(e)
+      )}</div>`
+    );
+  }
 });
 
 qs('prev').addEventListener('click', () => {
