@@ -1965,6 +1965,28 @@ function chunkArray(arr, size) {
   return out;
 }
 
+function parseReleaseList(release, releases) {
+  const values = [];
+  const pushValue = (value) => {
+    const v = String(value || '').trim();
+    if (v) values.push(v);
+  };
+
+  if (Array.isArray(release)) {
+    release.forEach(pushValue);
+  } else if (release) {
+    pushValue(release);
+  }
+
+  if (releases) {
+    String(releases)
+      .split(',')
+      .forEach(pushValue);
+  }
+
+  return [...new Set(values)];
+}
+
 function mapProjectForRelease(release, currentProject) {
   const r = release ? String(release) : '';
   if (/^18\./.test(r)) return 'Agent7';
@@ -2420,17 +2442,9 @@ app.get('/api/lean-workitems', async (req, res) => {
     where.push(sql.replace('?', `$${params.length}`));
   };
 
-  const releaseList = releases
-    ? String(releases)
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean)
-    : [];
-
+  const releaseList = parseReleaseList(release, releases);
   if (releaseList.length > 0) {
     add('release = ANY(?::text[])', releaseList);
-  } else if (release) {
-    add('release = ?', String(release));
   }
   if (assignedToUPN) add('assigned_to_upn = ?', String(assignedToUPN));
   if (state) add('state = ?', String(state));
@@ -2533,6 +2547,7 @@ app.get('/api/lean-workitems/export.csv', async (req, res) => {
   const {
     q,
     release,
+    releases,
     assignedToUPN,
     state,
     type,
@@ -2553,7 +2568,10 @@ app.get('/api/lean-workitems/export.csv', async (req, res) => {
     where.push(sql.replace('?', `$${params.length}`));
   };
 
-  if (release) add('release = ?', String(release));
+  const releaseList = parseReleaseList(release, releases);
+  if (releaseList.length > 0) {
+    add('release = ANY(?::text[])', releaseList);
+  }
   if (assignedToUPN) add('assigned_to_upn = ?', String(assignedToUPN));
   if (state) add('state = ?', String(state));
   if (type) add('type = ?', String(type));

@@ -1757,7 +1757,9 @@ function triggerExportCsv(selectedReleases) {
     if (selectedReleases.length === 1) {
       params.set('release', selectedReleases[0]);
     } else {
-      params.set('releases', selectedReleases.join(','));
+      selectedReleases.forEach((rel) => {
+        params.append('release', rel);
+      });
     }
   }
 
