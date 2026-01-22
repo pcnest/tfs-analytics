@@ -1,8 +1,24 @@
 let offset = 0;
 let lastSyncInfo = null;
+const PACIFIC_TZ = 'America/Los_Angeles';
 
 function qs(id) {
   return document.getElementById(id);
+}
+
+function formatPacificDateTime(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('en-US', {
+    timeZone: PACIFIC_TZ,
+    timeZoneName: 'short',
+  });
+}
+
+function formatPacificDate(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString('en-US', { timeZone: PACIFIC_TZ });
 }
 
 // ---------- URL State Management (Bookmarkable URLs) ----------
@@ -2504,7 +2520,7 @@ async function generateReleaseRadarReport(selectedReleases) {
       </div>
       <div style="margin-top:20px; padding-top:15px; border-top:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
         <div style="font-size:12px; color:#666;">
-          Generated: ${new Date().toLocaleString()}
+          Generated: ${formatPacificDateTime(new Date())}
         </div>
         <div style="display:flex; gap:8px;">
           <button id="btnCopyRadarReport" style="background:#4285f4; color:white; border:none; padding:8px 16px; border-radius:4px; cursor:pointer;">
@@ -2556,7 +2572,7 @@ async function generateReleaseRadarReport(selectedReleases) {
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Release Radar Report - ${new Date().toLocaleDateString()}</title>
+          <title>Release Radar Report - ${formatPacificDate(new Date())}</title>
           <style>
             body {
               font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -2613,7 +2629,7 @@ async function generateReleaseRadarReport(selectedReleases) {
             ${sanitizedSummary}
           </div>
           <div style="margin-top:30px; padding-top:15px; border-top:2px solid #ddd; font-size:12px; color:#666;">
-            Generated: ${new Date().toLocaleString()}
+            Generated: ${formatPacificDateTime(new Date())}
           </div>
         </body>
         </html>

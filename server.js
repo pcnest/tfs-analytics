@@ -3223,12 +3223,21 @@ app.get('/api/ai/release-radar-report', async (req, res) => {
   }
 });
 
+function formatPacificDateTime(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('en-US', {
+    timeZone: 'America/Los_Angeles',
+    timeZoneName: 'short',
+  });
+}
+
 // Helper function to format executive report as plain text
 function formatExecutiveReportAsText(report) {
   const { overview, releases, portfolioRisks, generatedAt } = report;
 
   let text = `WEEKLY EXECUTIVE REPORT\n`;
-  text += `Generated: ${new Date(generatedAt).toLocaleString()}\n`;
+  text += `Generated: ${formatPacificDateTime(generatedAt)}\n`;
   text += `\n`;
   text += `${'='.repeat(60)}\n`;
   text += `PORTFOLIO OVERVIEW\n`;
