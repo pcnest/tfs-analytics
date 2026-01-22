@@ -29,7 +29,7 @@ if (!DATABASE_URL) {
 
 if (!SYNC_API_KEY || SYNC_API_KEY.trim() === '') {
   console.error(
-    'ERROR: SYNC_API_KEY env var not set or empty. Set a strong random string.'
+    'ERROR: SYNC_API_KEY env var not set or empty. Set a strong random string.',
   );
   process.exit(1);
 }
@@ -78,7 +78,7 @@ app.get('/api/config', (req, res) => {
 app.get('/api/release-health', async (req, res) => {
   try {
     const viewExists = await pool.query(
-      "SELECT to_regclass('public.v_release_health') AS view_name"
+      "SELECT to_regclass('public.v_release_health') AS view_name",
     );
     const hasView = !!viewExists.rows?.[0]?.view_name;
     if (!hasView) {
@@ -95,10 +95,10 @@ app.get('/api/release-health', async (req, res) => {
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = 'v_release_health'
-    `
+    `,
     );
     const hasTopBlockerIds = colsInfo.rows.some(
-      (c) => c.column_name === 'Top Blocker IDs'
+      (c) => c.column_name === 'Top Blocker IDs',
     );
 
     const { project, release, includeNoRelease } = req.query;
@@ -167,7 +167,7 @@ app.get('/api/release-health-trends', async (req, res) => {
 
     // Check if trend tracking is enabled
     const tableExists = await pool.query(
-      "SELECT to_regclass('public.release_health_snapshots') AS table_name"
+      "SELECT to_regclass('public.release_health_snapshots') AS table_name",
     );
     const hasTable = !!tableExists.rows?.[0]?.table_name;
     if (!hasTable) {
@@ -223,7 +223,7 @@ app.get('/api/release-health-history', async (req, res) => {
     }
 
     const tableExists = await pool.query(
-      "SELECT to_regclass('public.release_health_snapshots') AS table_name"
+      "SELECT to_regclass('public.release_health_snapshots') AS table_name",
     );
     const hasTable = !!tableExists.rows?.[0]?.table_name;
     if (!hasTable) {
@@ -664,7 +664,7 @@ app.get('/api/release-cycle', async (req, res) => {
   const release = (req.query.release || '').toString().trim();
   const windowDays = Math.min(
     Math.max(Number(req.query.windowDays) || 7, 1),
-    60
+    60,
   );
 
   if (!release)
@@ -676,7 +676,7 @@ app.get('/api/release-cycle', async (req, res) => {
       `SELECT max(snapshot_at) AS as_of
        FROM public.tfs_workitems_analytics_snapshots
        WHERE release = $1`,
-      [release]
+      [release],
     );
     const asOf = asOfR.rows?.[0]?.as_of || null;
 
@@ -715,7 +715,7 @@ FROM public.tfs_workitems_analytics
 WHERE release = $1;
 
       `,
-      [release]
+      [release],
     );
 
     // Flow events in the last N days (based on snapshots)
@@ -750,7 +750,7 @@ WHERE release = $1;
         (SELECT COUNT(*)::int FROM rework_ev) AS rework_events,
         (SELECT COUNT(DISTINCT work_item_id)::int FROM rework_ev) AS rework_items
       `,
-      [release, asOf, windowDays]
+      [release, asOf, windowDays],
     );
 
     // Top stuck lists (by “days in current state” using state_change_date)
@@ -768,7 +768,7 @@ WHERE release = $1;
       ORDER BY age_days DESC NULLS LAST
       LIMIT 5
       `,
-      [release, asOf]
+      [release, asOf],
     );
 
     const topQaQueueR = await pool.query(
@@ -785,7 +785,7 @@ WHERE release = $1;
       ORDER BY age_days DESC NULLS LAST
       LIMIT 5
       `,
-      [release, asOf]
+      [release, asOf],
     );
 
     const topQaTestingR = await pool.query(
@@ -802,7 +802,7 @@ WHERE release = $1;
       ORDER BY age_days DESC NULLS LAST
       LIMIT 5
       `,
-      [release, asOf]
+      [release, asOf],
     );
 
     res.json({
@@ -833,13 +833,13 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
     // Check if we have enough data
     const snapshotCheck = await pool.query(
       'SELECT COUNT(DISTINCT run_id)::int AS snapshot_count FROM tfs_workitems_analytics_snapshots WHERE release = $1',
-      [release]
+      [release],
     );
     const snapshotCount = snapshotCheck.rows[0]?.snapshot_count || 0;
 
     const lastSyncCheck = await pool.query(
       'SELECT MAX(synced_at) AS last_sync FROM tfs_workitems_analytics WHERE release = $1',
-      [release]
+      [release],
     );
     const lastSync = lastSyncCheck.rows[0]?.last_sync;
     const daysSinceSync = lastSync
@@ -1031,7 +1031,7 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
     const warnings = [];
     if (snapshotCount < 2)
       warnings.push(
-        'Not enough snapshot data (need at least 2 syncs for burnup)'
+        'Not enough snapshot data (need at least 2 syncs for burnup)',
       );
     if (daysSinceSync !== null && daysSinceSync > 7)
       warnings.push(`Data is ${daysSinceSync} days old`);
@@ -1090,7 +1090,7 @@ app.get('/api/release-readiness-scorecard', async (req, res) => {
 app.get('/api/release-health/export.csv', async (req, res) => {
   try {
     const viewExists = await pool.query(
-      "SELECT to_regclass('public.v_release_health') AS view_name"
+      "SELECT to_regclass('public.v_release_health') AS view_name",
     );
     const hasView = !!viewExists.rows?.[0]?.view_name;
     if (!hasView) {
@@ -1162,7 +1162,7 @@ app.get('/api/release-health/export.csv', async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
-      'attachment; filename=release_health.csv'
+      'attachment; filename=release_health.csv',
     );
 
     res.write(headers.join(',') + '\n');
@@ -1181,7 +1181,7 @@ app.get('/api/release-health/export.csv', async (req, res) => {
 app.get('/api/last-sync-info', async (req, res) => {
   try {
     const r = await pool.query(
-      'SELECT MAX(synced_at) AS last_sync, COUNT(DISTINCT release)::int AS release_count FROM tfs_workitems_analytics WHERE is_deleted = FALSE'
+      'SELECT MAX(synced_at) AS last_sync, COUNT(DISTINCT release)::int AS release_count FROM tfs_workitems_analytics WHERE is_deleted = FALSE',
     );
     const row = r.rows[0] || {};
     const lastSync = row.last_sync;
@@ -1341,8 +1341,8 @@ app.get('/api/release-predictability', async (req, res) => {
           ? Math.max(
               1,
               Math.round(
-                (latestAt.getTime() - baseAt.getTime()) / (7 * 86400 * 1000)
-              )
+                (latestAt.getTime() - baseAt.getTime()) / (7 * 86400 * 1000),
+              ),
             )
           : null;
 
@@ -1497,7 +1497,7 @@ app.get('/api/quality-trends/export.csv', async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename=quality_trends_${release}.csv`
+      `attachment; filename=quality_trends_${release}.csv`,
     );
 
     res.write(headers.join(',') + '\n');
@@ -1559,7 +1559,7 @@ app.get('/api/weekly-throughput/export.csv', async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename=weekly_throughput_${release}.csv`
+      `attachment; filename=weekly_throughput_${release}.csv`,
     );
 
     res.write(headers.join(',') + '\n');
@@ -1835,11 +1835,11 @@ app.get('/api/weekly-throughput', async (req, res) => {
     const rows = r.rows || [];
     const totalClosed = rows.reduce(
       (sum, row) => sum + Number(row.closed_count || 0),
-      0
+      0,
     );
     const totalEffort = rows.reduce(
       (sum, row) => sum + Number(row.closed_effort || 0),
-      0
+      0,
     );
     const avgClosedPerWeek =
       rows.length > 0 ? (totalClosed / rows.length).toFixed(1) : 0;
@@ -1915,7 +1915,7 @@ function validateRow(r, idx) {
     const e = Number(r.effort);
     if (!Number.isFinite(e) || e < 0) {
       errors.push(
-        `Row ${idx}: Invalid effort: ${r.effort} (must be non-negative number)`
+        `Row ${idx}: Invalid effort: ${r.effort} (must be non-negative number)`,
       );
     }
   }
@@ -1932,7 +1932,7 @@ function validateRow(r, idx) {
       const val = Number(r[field]);
       if (!Number.isFinite(val) || val < 0 || !Number.isInteger(val)) {
         errors.push(
-          `Row ${idx}: Invalid ${field}: ${r[field]} (must be non-negative integer)`
+          `Row ${idx}: Invalid ${field}: ${r[field]} (must be non-negative integer)`,
         );
       }
     }
@@ -1979,9 +1979,7 @@ function parseReleaseList(release, releases) {
   }
 
   if (releases) {
-    String(releases)
-      .split(',')
-      .forEach(pushValue);
+    String(releases).split(',').forEach(pushValue);
   }
 
   return [...new Set(values)];
@@ -1989,7 +1987,7 @@ function parseReleaseList(release, releases) {
 
 function mapProjectForRelease(release, currentProject) {
   const r = release ? String(release) : '';
-  if (/^18\./.test(r)) return 'Agent7';
+  if (/^(18\.|19\.)/.test(r)) return 'Agent7';
   if (/^5\./.test(r)) return 'Mobile';
   if (/^80\.1\./.test(r)) return 'NextGen';
   if (/^4\.3\./.test(r)) return 'SSIS';
@@ -2072,16 +2070,16 @@ function buildUpsert(rows) {
         normInt(r.depCount) ?? 0,
         r.openDepCount === null || r.openDepCount === undefined
           ? null
-          : normInt(r.openDepCount) ?? 0,
+          : (normInt(r.openDepCount) ?? 0),
 
         normInt(r.relatedLinkCount) ?? 0,
         r.openRelatedCount === null || r.openRelatedCount === undefined
           ? null
-          : normInt(r.openRelatedCount) ?? 0,
+          : (normInt(r.openRelatedCount) ?? 0),
         toDateOrNull(r.closedDate),
         r.source ?? 'tfs-weekly-sync',
         toDateOrNull(r.syncedAtUtc) ?? new Date(),
-        false // FIX P0: is_deleted = false (item is active)
+        false, // FIX P0: is_deleted = false (item is active)
       );
 
       return `(${cols.map((_, j) => p(j)).join(',')})`;
@@ -2164,14 +2162,14 @@ function buildSnapshotInsert(runId, snapshotAt, rows) {
         normInt(r.depCount) ?? 0,
         r.openDepCount === null || r.openDepCount === undefined
           ? null
-          : normInt(r.openDepCount) ?? 0,
+          : (normInt(r.openDepCount) ?? 0),
 
         normInt(r.relatedLinkCount) ?? 0,
         r.openRelatedCount === null || r.openRelatedCount === undefined
           ? null
-          : normInt(r.openRelatedCount) ?? 0,
+          : (normInt(r.openRelatedCount) ?? 0),
 
-        toDateOrNull(r.closedDate)
+        toDateOrNull(r.closedDate),
       );
 
       return `(${cols.map((_, j) => p(j)).join(',')})`;
@@ -2192,7 +2190,7 @@ app.get('/api/last-sync-watermark', async (req, res) => {
 
   try {
     const r = await pool.query(
-      'SELECT MAX(changed_date) AS last_changed_date FROM tfs_workitems_analytics WHERE is_deleted = FALSE'
+      'SELECT MAX(changed_date) AS last_changed_date FROM tfs_workitems_analytics WHERE is_deleted = FALSE',
     );
     res.json({
       ok: true,
@@ -2290,7 +2288,9 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
   if (invalidRows.length > 0) {
     console.warn(
       `Validation failed for ${invalidRows.length} rows:`,
-      invalidRows.slice(0, 5).map((x) => ({ index: x.index, errors: x.errors }))
+      invalidRows
+        .slice(0, 5)
+        .map((x) => ({ index: x.index, errors: x.errors })),
     );
   }
 
@@ -2303,7 +2303,7 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       `INSERT INTO public.tfs_sync_runs(run_at, source, item_count)
        VALUES ($1, $2, $3)
        RETURNING run_id, run_at`,
-      [syncTs, src, validRows.length]
+      [syncTs, src, validRows.length],
     );
     const runId = runR.rows[0].run_id;
     const runAt = runR.rows[0].run_at; // normalized by DB
@@ -2316,10 +2316,10 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       // Check which work items already exist
       const existingIdsResult = await client.query(
         'SELECT work_item_id FROM tfs_workitems_analytics WHERE work_item_id = ANY($1)',
-        [validRows.map((r) => r.workItemId)]
+        [validRows.map((r) => r.workItemId)],
       );
       const existingSet = new Set(
-        existingIdsResult.rows.map((r) => r.work_item_id)
+        existingIdsResult.rows.map((r) => r.work_item_id),
       );
 
       for (const r of validRows) {
@@ -2353,7 +2353,7 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       for (const bad of invalidRows) {
         await client.query(
           'INSERT INTO tfs_sync_errors (run_id, row_data, error_message) VALUES ($1, $2, $3)',
-          [runId, JSON.stringify(bad.row), bad.errors.join('; ')]
+          [runId, JSON.stringify(bad.row), bad.errors.join('; ')],
         );
       }
     }
@@ -2363,7 +2363,7 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
     const deleteThreshold = new Date(Date.now() - 30 * 86400 * 1000);
     const deleteResult = await client.query(
       'UPDATE tfs_workitems_analytics SET is_deleted = TRUE WHERE synced_at < $1 AND is_deleted = FALSE',
-      [deleteThreshold]
+      [deleteThreshold],
     );
     const deletedCount = deleteResult.rowCount || 0;
 
@@ -2379,18 +2379,18 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
 
     await client.query(
       'UPDATE tfs_sync_runs SET metrics = $1, last_changed_date = (SELECT MAX(changed_date) FROM tfs_workitems_analytics WHERE is_deleted = FALSE) WHERE run_id = $2',
-      [JSON.stringify(metrics), runId]
+      [JSON.stringify(metrics), runId],
     );
 
     // NEW: Capture release health snapshot for confidence trending
     try {
       const snapshotResult = await client.query(
         'SELECT capture_release_health_snapshot($1) as captured_count',
-        [runId]
+        [runId],
       );
       const capturedCount = snapshotResult.rows[0]?.captured_count || 0;
       console.log(
-        `Captured health snapshot: ${capturedCount} releases for run ${runId}`
+        `Captured health snapshot: ${capturedCount} releases for run ${runId}`,
       );
     } catch (snapErr) {
       // Don't fail the sync if snapshot capture fails
@@ -2460,7 +2460,7 @@ app.get('/api/lean-workitems', async (req, res) => {
       params.push(`%${s}%`);
       const p = `$${params.length}`;
       where.push(
-        `(title ILIKE ${p} OR tags ILIKE ${p} OR CAST(work_item_id AS TEXT) ILIKE ${p})`
+        `(title ILIKE ${p} OR tags ILIKE ${p} OR CAST(work_item_id AS TEXT) ILIKE ${p})`,
       );
     }
   }
@@ -2513,7 +2513,7 @@ app.get('/api/lean-workitems', async (req, res) => {
       FROM tfs_workitems_analytics
       ${whereSql}
     `,
-      params
+      params,
     );
 
     res.json({
@@ -2585,7 +2585,7 @@ app.get('/api/lean-workitems/export.csv', async (req, res) => {
       params.push(`%${s}%`);
       const p = `$${params.length}`;
       where.push(
-        `(title ILIKE ${p} OR tags ILIKE ${p} OR CAST(work_item_id AS TEXT) ILIKE ${p})`
+        `(title ILIKE ${p} OR tags ILIKE ${p} OR CAST(work_item_id AS TEXT) ILIKE ${p})`,
       );
     }
   }
@@ -2651,7 +2651,7 @@ app.get('/api/lean-workitems/export.csv', async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
-      'attachment; filename=tfs_workitems_analytics.csv'
+      'attachment; filename=tfs_workitems_analytics.csv',
     );
 
     res.write(headers.join(',') + '\n');
@@ -2845,7 +2845,7 @@ app.get('/api/metrics-history', async (req, res) => {
 
     if (data.length >= 4) {
       const sortedData = [...data].sort(
-        (a, b) => new Date(b.week) - new Date(a.week)
+        (a, b) => new Date(b.week) - new Date(a.week),
       );
 
       let recentValue, previousValue;
@@ -2879,7 +2879,7 @@ app.get('/api/metrics-history', async (req, res) => {
 
       if (previousValue > 0) {
         trendPct = Math.round(
-          ((recentValue - previousValue) / previousValue) * 100
+          ((recentValue - previousValue) / previousValue) * 100,
         );
 
         // Determine if trend is good or bad based on metric type
@@ -2912,8 +2912,8 @@ app.get('/api/metrics-history', async (req, res) => {
           trendDirection === 'improving'
             ? `${metric} is trending positively`
             : trendDirection === 'degrading'
-            ? `${metric} is trending negatively`
-            : `${metric} is stable`,
+              ? `${metric} is trending negatively`
+              : `${metric} is stable`,
       },
     });
   } catch (e) {
@@ -3071,7 +3071,7 @@ app.get('/api/ai/executive-report', async (req, res) => {
       try {
         const releaseData = await reportBuilder.buildReleaseContext(
           pool,
-          release
+          release,
         );
         releasesData.push(releaseData);
       } catch (e) {
@@ -3104,7 +3104,7 @@ app.get('/api/ai/executive-report', async (req, res) => {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader(
         'Content-Disposition',
-        'attachment; filename="executive-report.txt"'
+        'attachment; filename="executive-report.txt"',
       );
       return res.send(textReport);
     }
@@ -3249,8 +3249,8 @@ function formatExecutiveReportAsText(report) {
       r.status === 'green'
         ? 'ON TRACK'
         : r.status === 'yellow'
-        ? 'AT RISK'
-        : 'CRITICAL';
+          ? 'AT RISK'
+          : 'CRITICAL';
 
     text += `${statusIcon} Release ${r.release} - ${statusLabel}\n`;
     text += `Health: ${r.health}%\n`;
