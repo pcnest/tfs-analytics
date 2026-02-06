@@ -529,6 +529,11 @@ function displayQualityTrends(data, trend) {
   const trendBadge = trend ? buildTrendBadge(trend) : '';
 
   const summaryHtml = `
+    <div style="display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
+      <button id="btnMetricsInsight" style="background:#4caf50; color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:13px;">
+        🤖 AI Insight
+      </button>
+    </div>
     <div style="display:flex; gap:20px; margin-bottom:14px; flex-wrap:wrap; align-items:center;">
       <div>
         <div class="small muted">Critical Open</div>
@@ -558,6 +563,9 @@ function displayQualityTrends(data, trend) {
   ]);
 
   body.innerHTML = summaryHtml + chartSvg;
+
+  // Wire AI insight button
+  qs('btnMetricsInsight')?.addEventListener('click', generateMetricsInsight);
 }
 
 // ---------- Throughput Chart ----------
@@ -658,6 +666,50 @@ function displayThroughputChart(data, trend) {
   );
 
   body.innerHTML = summaryHtml + chartSvg;
+}
+
+// ---------- AI Insight for Metrics ----------
+async function generateMetricsInsight() {
+  const release = qs('release')?.value?.trim();
+  if (!release) {
+    alert('Select a release first.');
+    return;
+  }
+
+  showModalLoading('Generating Insights');
+
+  try {
+    const r = await fetch(
+      `/api/ai/metrics-insight?release=${encodeURIComponent(release)}`
+    );
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) {
+      showModal(
+        'Error',
+        `<div style="color:#c62828;">${escapeHtml(
+          data.error || 'Failed to generate insights'
+        )}</div>`
+      );
+      return;
+    }
+
+    const content = `
+      <div style="white-space:pre-wrap; line-height:1.6; font-size:14px;">
+        ${escapeHtml(data.insight)}
+      </div>
+    `;
+
+    showModal('AI Insight: Quality & Velocity', content);
+  } catch (e) {
+    console.error('Metrics insight error:', e);
+    showModal(
+      'Error',
+      `<div style="color:#c62828;">Failed to generate insights: ${escapeHtml(
+        String(e)
+      )}</div>`
+    );
+  }
 }
 
 // ---------- Trend Badge Builder ----------
