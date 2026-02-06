@@ -3139,49 +3139,57 @@ app.get('/api/ai/release-radar-report', async (req, res) => {
     if (selectedReleases && selectedReleases.length > 0) {
       sql = `
         SELECT
-          project,
-          release,
-          "ConfidencePct"::int AS "confidencePct",
-          "Confidence Signals" AS "confidenceSignals",
-          "Confidence Driver" AS "confidenceDriver",
-          "Critical"::int AS "critical",
-          "High"::int AS "high",
-          "Medium"::int AS "medium",
-          "Low"::int AS "low",
-          "OnHold"::int AS "onHold",
-          "QAPass"::int AS "qaPass",
-          "QATotal"::int AS "qaTotal",
-          "QA status (pass/total)" AS "qaStatus",
-          "QA%"::int AS "qaPct",
-          "Top Blockers" AS "topBlockers",
-          "Decision Needed (Y/N)" AS "decisionNeeded"
-        FROM public.v_release_health
-        WHERE release = ANY($1)
-        ORDER BY project, release;
+          h.project,
+          h.release,
+          h."ConfidencePct"::int AS "confidencePct",
+          h."Confidence Signals" AS "confidenceSignals",
+          h."Confidence Driver" AS "confidenceDriver",
+          h."Critical"::int AS "critical",
+          h."High"::int AS "high",
+          h."Medium"::int AS "medium",
+          h."Low"::int AS "low",
+          h."OnHold"::int AS "onHold",
+          h."QAPass"::int AS "qaPass",
+          h."QATotal"::int AS "qaTotal",
+          h."QA status (pass/total)" AS "qaStatus",
+          h."QA%"::int AS "qaPct",
+          h."Top Blockers" AS "topBlockers",
+          h."Decision Needed (Y/N)" AS "decisionNeeded",
+          t.confidence_change::int AS "confidenceDelta",
+          t.previous_confidence::int AS "previousConfidence"
+        FROM public.v_release_health h
+        LEFT JOIN public.v_release_health_trends t
+          ON t.project = h.project AND t.release = h.release
+        WHERE h.release = ANY($1)
+        ORDER BY h.project, h.release;
       `;
       params = [selectedReleases];
     } else {
       sql = `
         SELECT
-          project,
-          release,
-          "ConfidencePct"::int AS "confidencePct",
-          "Confidence Signals" AS "confidenceSignals",
-          "Confidence Driver" AS "confidenceDriver",
-          "Critical"::int AS "critical",
-          "High"::int AS "high",
-          "Medium"::int AS "medium",
-          "Low"::int AS "low",
-          "OnHold"::int AS "onHold",
-          "QAPass"::int AS "qaPass",
-          "QATotal"::int AS "qaTotal",
-          "QA status (pass/total)" AS "qaStatus",
-          "QA%"::int AS "qaPct",
-          "Top Blockers" AS "topBlockers",
-          "Decision Needed (Y/N)" AS "decisionNeeded"
-        FROM public.v_release_health
-        WHERE release <> '(no release)'
-        ORDER BY project, release;
+          h.project,
+          h.release,
+          h."ConfidencePct"::int AS "confidencePct",
+          h."Confidence Signals" AS "confidenceSignals",
+          h."Confidence Driver" AS "confidenceDriver",
+          h."Critical"::int AS "critical",
+          h."High"::int AS "high",
+          h."Medium"::int AS "medium",
+          h."Low"::int AS "low",
+          h."OnHold"::int AS "onHold",
+          h."QAPass"::int AS "qaPass",
+          h."QATotal"::int AS "qaTotal",
+          h."QA status (pass/total)" AS "qaStatus",
+          h."QA%"::int AS "qaPct",
+          h."Top Blockers" AS "topBlockers",
+          h."Decision Needed (Y/N)" AS "decisionNeeded",
+          t.confidence_change::int AS "confidenceDelta",
+          t.previous_confidence::int AS "previousConfidence"
+        FROM public.v_release_health h
+        LEFT JOIN public.v_release_health_trends t
+          ON t.project = h.project AND t.release = h.release
+        WHERE h.release <> '(no release)'
+        ORDER BY h.project, h.release;
       `;
     }
 
