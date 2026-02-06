@@ -3114,6 +3114,7 @@ app.get('/api/ai/executive-report', async (req, res) => {
       overview: report.overview,
       releases: report.releases,
       portfolioRisks: report.portfolioRisks,
+      warnings: report.warnings,
       usage: report.usage,
     });
   } catch (e) {

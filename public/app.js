@@ -2270,6 +2270,7 @@ async function generateExecutiveReport(selectedReleases) {
     }
 
     const { overview, releases, portfolioRisks } = data;
+    const warnings = data.warnings || [];
 
     const overviewHtml = `
       <div style="background:#f5f5f5; padding:15px; border-radius:8px; margin-bottom:20px;">
@@ -2342,13 +2343,31 @@ async function generateExecutiveReport(selectedReleases) {
       </div>
     `;
 
+    const warningsHtml =
+      warnings.length > 0
+        ? `<div style="margin:10px 0 20px 0; padding:12px; border-radius:8px; background:#fff3cd; border:1px solid #ffeeba; color:#8a6d3b;">
+            <div style="font-weight:600; margin-bottom:6px;">Warnings</div>
+            <ul style="margin:0; padding-left:18px; line-height:1.6;">
+              ${warnings.map((w) => `<li>${escapeHtml(String(w))}</li>`).join('')}
+            </ul>
+          </div>`
+        : '';
+
+    const textDownloadHref =
+      releasesParam.length > 0
+        ? `/api/ai/executive-report?format=text&releases=${encodeURIComponent(
+            releasesParam
+          )}`
+        : '/api/ai/executive-report?format=text';
+
     const content = `
       ${overviewHtml}
       <div style="font-size:18px; font-weight:600; margin:20px 0 10px 0;">Release Summaries</div>
       ${releasesHtml}
       ${risksHtml}
+      ${warningsHtml}
       <div style="margin-top:20px; padding-top:15px; border-top:1px solid #eee; text-align:center;">
-        <a href="/api/ai/executive-report?format=text" target="_blank" style="color:#4285f4; text-decoration:none;">
+        <a href="${textDownloadHref}" target="_blank" style="color:#4285f4; text-decoration:none;">
           📄 Download as Plain Text
         </a>
       </div>
