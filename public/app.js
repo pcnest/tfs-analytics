@@ -130,10 +130,10 @@ function displaySyncBanner(info) {
   banner.innerHTML = `
     <span class="status-indicator ${statusColor}"></span>
     <span><strong>Last synced:</strong> ${dateStr} UTC (${daysSince} day${
-    daysSince !== 1 ? 's' : ''
-  } ago) • ${releaseCount} release${
-    releaseCount !== 1 ? 's' : ''
-  } • ${message}</span>
+      daysSince !== 1 ? 's' : ''
+    } ago) • ${releaseCount} release${
+      releaseCount !== 1 ? 's' : ''
+    } • ${message}</span>
   `;
   banner.className = `sync-banner ${statusClass}`;
   banner.style.display = 'flex';
@@ -255,16 +255,13 @@ async function loadReadinessScorecard() {
     card.style.display = 'block';
 
     const scoreUrl = `/api/release-readiness-scorecard?release=${encodeURIComponent(
-      release
+      release,
     )}`;
     const trendsUrl = `/api/release-health-trends?release=${encodeURIComponent(
-      release
+      release,
     )}`;
 
-    const [r, trendsR] = await Promise.all([
-      fetch(scoreUrl),
-      fetch(trendsUrl),
-    ]);
+    const [r, trendsR] = await Promise.all([fetch(scoreUrl), fetch(trendsUrl)]);
     const j = await r.json();
     const trendsJson = await trendsR.json().catch(() => ({}));
     const trendRow =
@@ -490,8 +487,8 @@ async function loadQualityTrends() {
       fetch(`/api/quality-trends?release=${encodeURIComponent(release)}`),
       fetch(
         `/api/metrics-history?release=${encodeURIComponent(
-          release
-        )}&metric=bugs&weeks=8`
+          release,
+        )}&metric=bugs&weeks=8`,
       ),
     ]);
 
@@ -501,7 +498,7 @@ async function loadQualityTrends() {
     if (trendsR.ok && trendsData.ok) {
       displayQualityTrends(
         trendsData,
-        historyData.ok ? historyData.trend : null
+        historyData.ok ? historyData.trend : null,
       );
     } else {
       body.innerHTML = `<div class="muted">Error: ${
@@ -590,8 +587,8 @@ async function loadThroughputChart() {
       fetch(`/api/weekly-throughput?release=${encodeURIComponent(release)}`),
       fetch(
         `/api/metrics-history?release=${encodeURIComponent(
-          release
-        )}&metric=velocity&weeks=8`
+          release,
+        )}&metric=velocity&weeks=8`,
       ),
     ]);
 
@@ -601,7 +598,7 @@ async function loadThroughputChart() {
     if (throughputR.ok && throughputData.ok) {
       displayThroughputChart(
         throughputData,
-        historyData.ok ? historyData.trend : null
+        historyData.ok ? historyData.trend : null,
       );
     } else {
       body.innerHTML = `<div class="muted">Error: ${
@@ -662,7 +659,7 @@ function displayThroughputChart(data, trend) {
     weekly,
     'closed_count',
     'Closed Items',
-    '#2196f3'
+    '#2196f3',
   );
 
   body.innerHTML = summaryHtml + chartSvg;
@@ -680,7 +677,7 @@ async function generateMetricsInsight() {
 
   try {
     const r = await fetch(
-      `/api/ai/metrics-insight?release=${encodeURIComponent(release)}`
+      `/api/ai/metrics-insight?release=${encodeURIComponent(release)}`,
     );
     const data = await r.json();
 
@@ -688,8 +685,8 @@ async function generateMetricsInsight() {
       showModal(
         'Error',
         `<div style="color:#c62828;">${escapeHtml(
-          data.error || 'Failed to generate insights'
-        )}</div>`
+          data.error || 'Failed to generate insights',
+        )}</div>`,
       );
       return;
     }
@@ -706,8 +703,8 @@ async function generateMetricsInsight() {
     showModal(
       'Error',
       `<div style="color:#c62828;">Failed to generate insights: ${escapeHtml(
-        String(e)
-      )}</div>`
+        String(e),
+      )}</div>`,
     );
   }
 }
@@ -746,8 +743,8 @@ function buildTrendBadge(trend) {
       <span style="font-size:16px;">${arrow}</span>
       <span>${changeText}</span>
       <span class="muted" style="font-size:11px; color:${color}; opacity:0.8;" title="${escapeHtml(
-    description || ''
-  )}">${direction}</span>
+        description || '',
+      )}">${direction}</span>
     </div>
   `;
 }
@@ -783,8 +780,8 @@ function buildLineChart(data, series) {
         W - padR
       }" y2="${y}" stroke="#e0e0e0" stroke-width="1"/>
             <text x="${padL - 5}" y="${
-        y + 4
-      }" text-anchor="end" font-size="11" fill="#666">${Math.round(v)}</text>`;
+              y + 4
+            }" text-anchor="end" font-size="11" fill="#666">${Math.round(v)}</text>`;
     })
     .join('');
 
@@ -815,8 +812,8 @@ function buildLineChart(data, series) {
       const x = W - padR - 150 + i * 80;
       return `<rect x="${x}" y="10" width="12" height="12" fill="${s.color}"/>
             <text x="${x + 16}" y="20" font-size="11" fill="#666">${
-        s.label
-      }</text>`;
+              s.label
+            }</text>`;
     })
     .join('');
 
@@ -858,8 +855,8 @@ function buildBarChart(data, valueKey, label, color) {
         W - padR
       }" y2="${y}" stroke="#e0e0e0" stroke-width="1"/>
             <text x="${padL - 5}" y="${
-        y + 4
-      }" text-anchor="end" font-size="11" fill="#666">${Math.round(v)}</text>`;
+              y + 4
+            }" text-anchor="end" font-size="11" fill="#666">${Math.round(v)}</text>`;
     })
     .join('');
 
@@ -958,7 +955,7 @@ function renderIdPill(id) {
   const label = escapeHtml(id);
   if (href) {
     return `<a class="pill" href="${escapeHtml(
-      href
+      href,
     )}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   }
   return `<span class="pill">${label}</span>`;
@@ -1034,39 +1031,39 @@ function buildBurnupSvg(rows) {
       <svg viewBox="0 0 ${W} ${H}" width="100%" height="160" role="img" aria-label="Burnup chart">
         <!-- grid -->
         <line x1="${padL}" y1="${yMax}" x2="${
-    W - padR
-  }" y2="${yMax}" stroke="#000" opacity="0.10" vector-effect="non-scaling-stroke" />
+          W - padR
+        }" y2="${yMax}" stroke="#000" opacity="0.10" vector-effect="non-scaling-stroke" />
         <line x1="${padL}" y1="${yMid}" x2="${
-    W - padR
-  }" y2="${yMid}" stroke="#000" opacity="0.10" vector-effect="non-scaling-stroke" />
+          W - padR
+        }" y2="${yMid}" stroke="#000" opacity="0.10" vector-effect="non-scaling-stroke" />
         <line x1="${padL}" y1="${y0}"   x2="${
-    W - padR
-  }" y2="${y0}"   stroke="#000" opacity="0.10" vector-effect="non-scaling-stroke" />
+          W - padR
+        }" y2="${y0}"   stroke="#000" opacity="0.10" vector-effect="non-scaling-stroke" />
 
         <!-- y labels -->
         <text x="${padL - 8}" y="${
-    yMax + 4
-  }" text-anchor="end" font-size="10" fill="#000" opacity="0.55">${maxY}</text>
+          yMax + 4
+        }" text-anchor="end" font-size="10" fill="#000" opacity="0.55">${maxY}</text>
         <text x="${padL - 8}" y="${
-    yMid + 4
-  }" text-anchor="end" font-size="10" fill="#000" opacity="0.55">${Math.round(
-    maxY / 2
-  )}</text>
+          yMid + 4
+        }" text-anchor="end" font-size="10" fill="#000" opacity="0.55">${Math.round(
+          maxY / 2,
+        )}</text>
         <text x="${padL - 8}" y="${
-    y0 + 4
-  }"   text-anchor="end" font-size="10" fill="#000" opacity="0.55">0</text>
+          y0 + 4
+        }"   text-anchor="end" font-size="10" fill="#000" opacity="0.55">0</text>
 
         <!-- x labels -->
         <text x="${firstX}" y="${
-    H - 10
-  }" text-anchor="start" font-size="10" fill="#000" opacity="0.55">${fmtTick(
-    t0
-  )}</text>
+          H - 10
+        }" text-anchor="start" font-size="10" fill="#000" opacity="0.55">${fmtTick(
+          t0,
+        )}</text>
         <text x="${lastX}"  y="${
-    H - 10
-  }" text-anchor="end"   font-size="10" fill="#000" opacity="0.55">${fmtTick(
-    t1
-  )}</text>
+          H - 10
+        }" text-anchor="end"   font-size="10" fill="#000" opacity="0.55">${fmtTick(
+          t1,
+        )}</text>
 
         <!-- total scope line (lighter) -->
         <polyline points="${totalPts}" fill="none" stroke="#000" opacity="0.35" stroke-width="2" vector-effect="non-scaling-stroke" />
@@ -1081,15 +1078,15 @@ function buildBurnupSvg(rows) {
         <!-- tiny legend -->
         <rect x="${padL}" y="${padT}" width="12" height="3" fill="#000" opacity="0.95"></rect>
         <text x="${padL + 18}" y="${
-    padT + 4
-  }" font-size="10" fill="#000" opacity="0.85">Done</text>
+          padT + 4
+        }" font-size="10" fill="#000" opacity="0.85">Done</text>
 
         <rect x="${
           padL + 70
         }" y="${padT}" width="12" height="3" fill="#000" opacity="0.35"></rect>
         <text x="${padL + 88}" y="${
-    padT + 4
-  }" font-size="10" fill="#000" opacity="0.85">Total</text>
+          padT + 4
+        }" font-size="10" fill="#000" opacity="0.85">Total</text>
       </svg>
     </div>
   `;
@@ -1135,10 +1132,9 @@ async function loadReleaseHealth() {
       return;
     }
 
-    const trendsRows =
-      trendsR.ok && trendsData.ok ? trendsData.rows || [] : [];
+    const trendsRows = trendsR.ok && trendsData.ok ? trendsData.rows || [] : [];
     const trendsByRelease = new Map(
-      trendsRows.map((row) => [String(row.release || ''), row])
+      trendsRows.map((row) => [String(row.release || ''), row]),
     );
 
     const rows = data.rows || [];
@@ -1186,17 +1182,16 @@ async function loadReleaseHealth() {
         </thead>
         <tbody>
           ${rows
-            .map(
-              (x) => {
-                const trend = trendsByRelease.get(String(x.release || ''));
-                const delta = formatConfidenceDelta(trend);
-                return `
+            .map((x) => {
+              const trend = trendsByRelease.get(String(x.release || ''));
+              const delta = formatConfidenceDelta(trend);
+              return `
             <tr>
               <td>${escapeHtml(x.project)}</td>
               <td>${escapeHtml(x.release)}</td>
               <td>${x.confidencePct ?? ''}%</td>
               <td><span style="color:${delta.color}; font-weight:600;">${escapeHtml(
-                delta.text
+                delta.text,
               )}</span></td>
               <td>${escapeHtml(x.qaStatus ?? '')} (${x.qaPct ?? ''}%)</td>
               <td>${x.critical}/${x.high}/${x.medium}/${x.low}</td>
@@ -1207,8 +1202,7 @@ async function loadReleaseHealth() {
               <td>${escapeHtml(x.decisionNeeded ?? '')}</td>
             </tr>
           `;
-              }
-            )
+            })
             .join('')}
         </tbody>
       </table>
@@ -1237,8 +1231,8 @@ async function loadReleaseProgress(release) {
     const [burnR, scopeR] = await Promise.all([
       fetch(
         `/api/release-burnup?release=${encodeURIComponent(
-          rel
-        )}&bucket=${bucket}`
+          rel,
+        )}&bucket=${bucket}`,
       ),
       fetch(`/api/release-scope-summary?release=${encodeURIComponent(rel)}`),
     ]);
@@ -1262,8 +1256,8 @@ async function loadReleaseProgress(release) {
     const asOf = scope.latest_at
       ? new Date(scope.latest_at)
       : last?.t
-      ? new Date(last.t)
-      : null;
+        ? new Date(last.t)
+        : null;
     const asOfStr = asOf
       ? asOf.toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
       : '—';
@@ -1340,7 +1334,7 @@ async function loadReleaseProgress(release) {
                 <td>${x.total_scope}</td>
                 <td>${x.done_scope}</td>
               </tr>
-            `
+            `,
               )
               .join('')}
           </tbody>
@@ -1429,8 +1423,8 @@ async function loadReleaseInsights(release) {
           <div class="mini-k">Blocked</div>
           <div class="mini-v">${dep.blockedPct ?? 0}%</div>
           <div class="mini-sub">${dep.blockedCount ?? 0} / ${
-      dep.activeCount ?? 0
-    } active</div>
+            dep.activeCount ?? 0
+          } active</div>
         </div>
 
         <div class="mini-card">
@@ -1449,7 +1443,7 @@ async function loadReleaseInsights(release) {
           <span class="muted">(${escapeHtml(x.state)} • ${x.age_days}d)</span>
           <div style="margin-top:2px;">${escapeHtml(x.title || '')}</div>
         </li>
-      `
+      `,
       )
       .join('');
 
@@ -1459,11 +1453,11 @@ async function loadReleaseInsights(release) {
         <li style="margin:4px 0;">
           ${renderIdPill(x.work_item_id)}
           <span class="muted">(${escapeHtml(x.state)} • open deps: ${
-          x.open_dep_count
-        })</span>
+            x.open_dep_count
+          })</span>
           <div style="margin-top:2px;">${escapeHtml(x.title || '')}</div>
         </li>
-      `
+      `,
       )
       .join('');
 
@@ -1509,7 +1503,7 @@ async function loadReleaseCycle(release) {
 
   try {
     const r = await fetch(
-      `/api/release-cycle?release=${encodeURIComponent(rel)}&windowDays=7`
+      `/api/release-cycle?release=${encodeURIComponent(rel)}&windowDays=7`,
     );
     const data = await r.json().catch(() => ({}));
     if (!r.ok || !data.ok) throw new Error(data?.error || `HTTP ${r.status}`);
@@ -1588,11 +1582,11 @@ async function loadReleaseCycle(release) {
             <li>
               ${renderIdPill(x.id)}
               <span class="muted">(${escapeHtml(x.state)} • ${Number(
-                x.age_days ?? 0
+                x.age_days ?? 0,
               )}d)</span><br/>
               ${escapeHtml(x.title || '')}
             </li>
-          `
+          `,
             )
             .join('')}
         </ul>
@@ -1703,14 +1697,8 @@ function colorizeTrendArrows(html) {
   const input = String(html ?? '');
   if (!input) return '';
   return input
-    .replaceAll(
-      '▲',
-      '<span style="color:#0a7c2f; font-weight:600;">▲</span>'
-    )
-    .replaceAll(
-      '▼',
-      '<span style="color:#b42318; font-weight:600;">▼</span>'
-    );
+    .replaceAll('↑', '<span style="color:#0a7c2f; font-weight:600;">↑</span>')
+    .replaceAll('↓', '<span style="color:#b42318; font-weight:600;">↓</span>');
 }
 
 function formatBlockers(text, idsRaw) {
@@ -1743,8 +1731,8 @@ function formatBlockers(text, idsRaw) {
       // Format: <Type> <Linked ID> - <Title>
       items.push(
         `<li><span style="color:#666;">${escapeHtml(
-          type
-        )}</span> ${pill} — ${escapeHtml(title)}</li>`
+          type,
+        )}</span> ${pill} — ${escapeHtml(title)}</li>`,
       );
     } else if (id) {
       // Fallback: just show linked ID and text
@@ -1760,9 +1748,8 @@ function formatBlockers(text, idsRaw) {
 }
 
 async function load() {
-  qs(
-    'tbody'
-  ).innerHTML = `<tr><td colspan="8" class="muted">Loading...</td></tr>`;
+  qs('tbody').innerHTML =
+    `<tr><td colspan="8" class="muted">Loading...</td></tr>`;
   qs('offsetLabel').textContent = String(offset);
 
   const params = buildParams();
@@ -1785,9 +1772,8 @@ async function load() {
   qs('showing').textContent = `${data.rows.length} / ${data.count}`;
 
   if (data.rows.length === 0) {
-    qs(
-      'tbody'
-    ).innerHTML = `<tr><td colspan="8" class="muted">No rows match the filters.</td></tr>`;
+    qs('tbody').innerHTML =
+      `<tr><td colspan="8" class="muted">No rows match the filters.</td></tr>`;
     return;
   }
 
@@ -1804,12 +1790,12 @@ async function load() {
         <td>
           <div>${fmt(r.assignedTo)}</div>
           <div class="muted" style="font-size:12px;">${fmt(
-            r.assignedToUPN
+            r.assignedToUPN,
           )}</div>
         </td>
         <td>${fmtDate(r.changedDate)}</td>
       </tr>
-    `
+    `,
     )
     .join('');
 }
@@ -1862,8 +1848,8 @@ qs('btnExport').addEventListener('click', async () => {
       showModal(
         'Error',
         `<div style="color:#c62828;">${escapeHtml(
-          data.error || 'Failed to load releases'
-        )}</div>`
+          data.error || 'Failed to load releases',
+        )}</div>`,
       );
       return;
     }
@@ -1896,7 +1882,7 @@ qs('btnExport').addEventListener('click', async () => {
             return `
           <label style="display:flex; align-items:center; padding:8px; margin-bottom:5px; cursor:pointer; border-radius:4px; transition:background 0.2s;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">
             <input type="checkbox" class="export-release-checkbox" value="${escapeHtml(
-              rel
+              rel,
             )}" style="margin-right:10px; transform:scale(1.2);" ${
               checked ? 'checked' : ''
             }>
@@ -1954,8 +1940,8 @@ qs('btnExport').addEventListener('click', async () => {
     showModal(
       'Error',
       `<div style="color:#c62828;">Failed to load releases: ${escapeHtml(
-        String(e)
-      )}</div>`
+        String(e),
+      )}</div>`,
     );
   }
 });
@@ -2064,7 +2050,7 @@ qs('btnAISummary').addEventListener('click', async () => {
 
   try {
     const r = await fetch(
-      `/api/ai/release-summary?release=${encodeURIComponent(release)}`
+      `/api/ai/release-summary?release=${encodeURIComponent(release)}`,
     );
     const data = await r.json();
 
@@ -2072,8 +2058,8 @@ qs('btnAISummary').addEventListener('click', async () => {
       showModal(
         'Error',
         `<div style="color:#c62828;">${escapeHtml(
-          data.error || 'Failed to generate summary'
-        )}</div>`
+          data.error || 'Failed to generate summary',
+        )}</div>`,
       );
       return;
     }
@@ -2084,8 +2070,8 @@ qs('btnAISummary').addEventListener('click', async () => {
       metrics.overallScore?.status === 'green'
         ? '🟢'
         : metrics.overallScore?.status === 'yellow'
-        ? '🟡'
-        : '🔴';
+          ? '🟡'
+          : '🔴';
 
     const content = `
       <div style="margin-bottom:20px;">
@@ -2124,12 +2110,12 @@ qs('btnAISummary').addEventListener('click', async () => {
       <div style="border-top:2px solid #eee; padding-top:15px;">
         <div style="font-weight:600; margin-bottom:10px;">Executive Summary:</div>
         <div style="line-height:1.8; font-size:14px;">${escapeHtml(
-          summary
+          summary,
         )}</div>
       </div>
       <div style="margin-top:20px; padding-top:15px; border-top:1px solid #eee;">
         <button onclick="loadRiskAnalysis('${escapeHtml(
-          release
+          release,
         )}')" style="background:#ea4335; color:white;">
           View Risk Analysis
         </button>
@@ -2142,8 +2128,8 @@ qs('btnAISummary').addEventListener('click', async () => {
     showModal(
       'Error',
       `<div style="color:#c62828;">Failed to generate AI summary: ${escapeHtml(
-        String(e)
-      )}</div>`
+        String(e),
+      )}</div>`,
     );
   }
 });
@@ -2154,7 +2140,7 @@ window.loadRiskAnalysis = async function (release) {
 
   try {
     const r = await fetch(
-      `/api/ai/risk-analysis?release=${encodeURIComponent(release)}`
+      `/api/ai/risk-analysis?release=${encodeURIComponent(release)}`,
     );
     const data = await r.json();
 
@@ -2162,8 +2148,8 @@ window.loadRiskAnalysis = async function (release) {
       showModal(
         'Error',
         `<div style="color:#c62828;">${escapeHtml(
-          data.error || 'Failed to generate risk analysis'
-        )}</div>`
+          data.error || 'Failed to generate risk analysis',
+        )}</div>`,
       );
       return;
     }
@@ -2176,7 +2162,7 @@ window.loadRiskAnalysis = async function (release) {
            <div style="font-weight:600; margin-bottom:5px;">⚠️ System Warnings:</div>
            ${warnings
              .map(
-               (w) => `<div style="font-size:13px;">• ${escapeHtml(w)}</div>`
+               (w) => `<div style="font-size:13px;">• ${escapeHtml(w)}</div>`,
              )
              .join('')}
          </div>`
@@ -2186,7 +2172,7 @@ window.loadRiskAnalysis = async function (release) {
       ${warningsHtml}
       <div style="font-weight:600; margin-bottom:10px; font-size:16px;">Risk Analysis & Recommendations:</div>
       <div style="line-height:1.8; white-space:pre-wrap;">${escapeHtml(
-        riskAnalysis
+        riskAnalysis,
       )}</div>
     `;
 
@@ -2196,8 +2182,8 @@ window.loadRiskAnalysis = async function (release) {
     showModal(
       'Error',
       `<div style="color:#c62828;">Failed to generate risk analysis: ${escapeHtml(
-        String(e)
-      )}</div>`
+        String(e),
+      )}</div>`,
     );
   }
 };
@@ -2216,8 +2202,8 @@ qs('btnExecutiveReport').addEventListener('click', async () => {
       showModal(
         'Error',
         `<div style="color:#c62828;">${escapeHtml(
-          data.error || 'Failed to load releases'
-        )}</div>`
+          data.error || 'Failed to load releases',
+        )}</div>`,
       );
       return;
     }
@@ -2245,18 +2231,18 @@ qs('btnExecutiveReport').addEventListener('click', async () => {
             (rel) => `
           <label style="display:flex; align-items:center; padding:8px; margin-bottom:5px; cursor:pointer; border-radius:4px; transition:background 0.2s;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">
             <input type="checkbox" class="release-checkbox" value="${escapeHtml(
-              rel.release
+              rel.release,
             )}" style="margin-right:10px; transform:scale(1.2);" checked>
             <div style="flex:1;">
               <div style="font-weight:500;">${escapeHtml(rel.release)}</div>
               <div style="font-size:12px; color:#666;">
                 ${rel.totalItems} total • ${rel.activeItems} active • ${
-              rel.doneItems
-            } done
+                  rel.doneItems
+                } done
               </div>
             </div>
           </label>
-        `
+        `,
           )
           .join('')}
       </div>
@@ -2306,8 +2292,8 @@ qs('btnExecutiveReport').addEventListener('click', async () => {
     showModal(
       'Error',
       `<div style="color:#c62828;">Failed to load releases: ${escapeHtml(
-        String(e)
-      )}</div>`
+        String(e),
+      )}</div>`,
     );
   }
 });
@@ -2320,8 +2306,8 @@ async function generateExecutiveReport(selectedReleases) {
     const releasesParam = selectedReleases.join(',');
     const r = await fetch(
       `/api/ai/executive-report?format=json&releases=${encodeURIComponent(
-        releasesParam
-      )}`
+        releasesParam,
+      )}`,
     );
     const data = await r.json();
 
@@ -2329,8 +2315,8 @@ async function generateExecutiveReport(selectedReleases) {
       showModal(
         'Error',
         `<div style="color:#c62828;">${escapeHtml(
-          data.error || 'Failed to generate executive report'
-        )}</div>`
+          data.error || 'Failed to generate executive report',
+        )}</div>`,
       );
       return;
     }
@@ -2370,21 +2356,21 @@ async function generateExecutiveReport(selectedReleases) {
           rel.status === 'green'
             ? 'ON TRACK'
             : rel.status === 'yellow'
-            ? 'AT RISK'
-            : 'CRITICAL';
+              ? 'AT RISK'
+              : 'CRITICAL';
         const statusColor =
           rel.status === 'green'
             ? '#2e7d32'
             : rel.status === 'yellow'
-            ? '#e65100'
-            : '#c62828';
+              ? '#e65100'
+              : '#c62828';
 
         return `
         <div style="border: 1px solid #e0e0e0; border-radius:8px; padding:15px; margin-bottom:15px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
             <div style="font-size:16px; font-weight:600;">${icon} ${escapeHtml(
-          rel.release
-        )}</div>
+              rel.release,
+            )}</div>
             <div style="background:${statusColor}; color:white; padding:4px 12px; border-radius:12px; font-size:12px; font-weight:600;">
               ${statusLabel}
             </div>
@@ -2393,7 +2379,7 @@ async function generateExecutiveReport(selectedReleases) {
             rel.health
           }%</div>
           <div style="line-height:1.6; font-size:14px;">${escapeHtml(
-            rel.summary
+            rel.summary,
           )}</div>
         </div>
       `;
@@ -2404,7 +2390,7 @@ async function generateExecutiveReport(selectedReleases) {
       <div style="background:#fdecea; padding:15px; border-radius:8px; border:1px solid #f44336;">
         <div style="font-size:16px; font-weight:600; margin-bottom:10px; color:#c62828;">🔴 Top Portfolio Risks</div>
         <div style="line-height:1.8; white-space:pre-wrap; font-size:14px;">${escapeHtml(
-          portfolioRisks
+          portfolioRisks,
         )}</div>
       </div>
     `;
@@ -2422,7 +2408,7 @@ async function generateExecutiveReport(selectedReleases) {
     const textDownloadHref =
       releasesParam.length > 0
         ? `/api/ai/executive-report?format=text&releases=${encodeURIComponent(
-            releasesParam
+            releasesParam,
           )}`
         : '/api/ai/executive-report?format=text';
 
@@ -2445,8 +2431,8 @@ async function generateExecutiveReport(selectedReleases) {
     showModal(
       'Error',
       `<div style="color:#c62828;">Failed to generate executive report: ${escapeHtml(
-        String(e)
-      )}</div>`
+        String(e),
+      )}</div>`,
     );
   }
 }
@@ -2465,8 +2451,8 @@ qs('btnRadarReport')?.addEventListener('click', async () => {
       showModal(
         'Error',
         `<div style="color:#c62828;">${escapeHtml(
-          data.error || 'Failed to load releases'
-        )}</div>`
+          data.error || 'Failed to load releases',
+        )}</div>`,
       );
       return;
     }
@@ -2495,25 +2481,25 @@ qs('btnRadarReport')?.addEventListener('click', async () => {
               rel.confidencePct >= 80
                 ? '🟢'
                 : rel.confidencePct >= 60
-                ? '🟡'
-                : '🔴';
+                  ? '🟡'
+                  : '🔴';
             return `
           <label style="display:flex; align-items:center; padding:8px; margin-bottom:5px; cursor:pointer; border-radius:4px; transition:background 0.2s;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">
             <input type="checkbox" class="radar-release-checkbox" value="${escapeHtml(
-              rel.release
+              rel.release,
             )}" style="margin-right:10px; transform:scale(1.2);" checked>
             <div style="flex:1;">
               <div style="font-weight:500;">${icon} ${escapeHtml(
-              rel.release
-            )} <span style="font-size:12px; color:#666;">(${escapeHtml(
-              rel.project
-            )})</span></div>
+                rel.release,
+              )} <span style="font-size:12px; color:#666;">(${escapeHtml(
+                rel.project,
+              )})</span></div>
               <div style="font-size:12px; color:#666;">
                 Confidence: ${rel.confidencePct}% • QA: ${
-              rel.qaPct || 0
-            }% • Priorities: ${rel.critical || 0}C/${rel.high || 0}H/${
-              rel.medium || 0
-            }M/${rel.low || 0}L
+                  rel.qaPct || 0
+                }% • Priorities: ${rel.critical || 0}C/${rel.high || 0}H/${
+                  rel.medium || 0
+                }M/${rel.low || 0}L
               </div>
             </div>
           </label>
@@ -2567,8 +2553,8 @@ qs('btnRadarReport')?.addEventListener('click', async () => {
     showModal(
       'Error',
       `<div style="color:#c62828;">Failed to load releases: ${escapeHtml(
-        String(e)
-      )}</div>`
+        String(e),
+      )}</div>`,
     );
   }
 });
@@ -2581,8 +2567,8 @@ async function generateReleaseRadarReport(selectedReleases) {
     const releasesParam = selectedReleases.join(',');
     const r = await fetch(
       `/api/ai/release-radar-report?releases=${encodeURIComponent(
-        releasesParam
-      )}`
+        releasesParam,
+      )}`,
     );
     const data = await r.json();
 
@@ -2590,8 +2576,8 @@ async function generateReleaseRadarReport(selectedReleases) {
       showModal(
         'Error',
         `<div style="color:#c62828;">${escapeHtml(
-          data.error || 'Failed to generate Release Radar report'
-        )}</div>`
+          data.error || 'Failed to generate Release Radar report',
+        )}</div>`,
       );
       return;
     }
@@ -2732,8 +2718,8 @@ async function generateReleaseRadarReport(selectedReleases) {
     showModal(
       'Error',
       `<div style="color:#c62828;">Failed to generate Release Radar report: ${escapeHtml(
-        String(e)
-      )}</div>`
+        String(e),
+      )}</div>`,
     );
   }
 }
