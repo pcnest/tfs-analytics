@@ -1699,6 +1699,20 @@ function sanitizeAiHtml(html) {
   return doc.body.innerHTML;
 }
 
+function colorizeTrendArrows(html) {
+  const input = String(html ?? '');
+  if (!input) return '';
+  return input
+    .replaceAll(
+      '▲',
+      '<span style="color:#0a7c2f; font-weight:600;">▲</span>'
+    )
+    .replaceAll(
+      '▼',
+      '<span style="color:#b42318; font-weight:600;">▼</span>'
+    );
+}
+
 function formatBlockers(text, idsRaw) {
   // New format: "Type ID - Title | Type ID - Title"
   // The SQL view now provides formatted text like "Bug 12345 - Title"
@@ -2583,7 +2597,7 @@ async function generateReleaseRadarReport(selectedReleases) {
     }
 
     const { summary, releases } = data;
-    const sanitizedSummary = sanitizeAiHtml(summary);
+    const sanitizedSummary = colorizeTrendArrows(sanitizeAiHtml(summary));
 
     const content = `
       <div class="ai-report">
