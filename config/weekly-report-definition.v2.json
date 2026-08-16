@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 2,
+  "layouts": {
+    "agent7-weekly": {
+      "description": "Agent7 weekly status-report placement preview",
+      "source": {
+        "areaPaths": [
+          "SupplyPro.Core\\Enterprise Software Team\\Agent7"
+        ],
+        "match": "exact"
+      },
+      "filters": {
+        "types": [
+          "Product Backlog Item",
+          "Bug",
+          "Task",
+          "Feature"
+        ],
+        "excludeStates": [
+          "Removed"
+        ],
+        "requiredTags": [
+          "WeeklyReport"
+        ],
+        "requiredTagsMode": "all"
+      },
+      "limits": {
+        "candidateRows": 5000,
+        "includedRows": 2000
+      },
+      "tabs": [
+        {
+          "key": "agent7",
+          "name": "Agent7",
+          "order": 10,
+          "sections": [
+            {
+              "key": "weekly-items",
+              "name": "Weekly Items",
+              "order": 10,
+              "grouping": {
+                "levels": [
+                  "release",
+                  "feature"
+                ],
+                "includeStandaloneItems": true
+              }
+            }
+          ]
+        }
+      ],
+      "placementRules": [
+        {
+          "key": "agent7-default",
+          "priority": 100,
+          "match": {
+            "areaPaths": [
+              "SupplyPro.Core\\Enterprise Software Team\\Agent7"
+            ]
+          },
+          "target": {
+            "tabKey": "agent7",
+            "sectionKey": "weekly-items"
+          }
+        }
+      ],
+      "columns": [
+        {
+          "key": "version",
+          "header": "Version",
+          "width": 12
+        },
+        {
+          "key": "workItemId",
+          "header": "ID",
+          "width": 12
+        },
+        {
+          "key": "type",
+          "header": "Type",
+          "width": 14
+        },
+        {
+          "key": "title",
+          "header": "Title",
+          "width": 90
+        },
+        {
+          "key": "state",
+          "header": "Status",
+          "width": 22
+        },
+        {
+          "key": "remark",
+          "header": "Remarks",
+          "width": 45
+        }
+      ]
+    }
+  }
+}

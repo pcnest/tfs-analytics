@@ -25,6 +25,10 @@ const ENABLE_XLSX_REPORTS =
   String(process.env.ENABLE_XLSX_REPORTS || '')
     .trim()
     .toLowerCase() === 'true';
+const ENABLE_WEEKLY_REPORT_PREVIEW =
+  String(process.env.ENABLE_WEEKLY_REPORT_PREVIEW || '')
+    .trim()
+    .toLowerCase() === 'true';
 
 if (!DATABASE_URL) {
   console.error('ERROR: DATABASE_URL env var not set.');
@@ -1973,6 +1977,59 @@ if (ENABLE_XLSX_REPORTS) {
       return res.end();
     }
   });
+}
+
+// ---------- Weekly status report placement preview (v2) ----------
+if (ENABLE_WEEKLY_REPORT_PREVIEW) {
+  const previewRoute = '/api/weekly-status-report/placement-preview';
+  let weeklyReportConfigModule = null;
+  let weeklyReportPlacementModule = null;
+  let weeklyReportPreviewRouteModule = null;
+  const definitionState = {
+    config: null,
+    validation: null,
+    initializationError: null,
+  };
+
+  try {
+    weeklyReportConfigModule = require('./lib/weekly-report-config');
+    weeklyReportPlacementModule = require('./lib/weekly-report-placement');
+    weeklyReportPreviewRouteModule = require('./lib/weekly-report-preview-route');
+    const loaded = weeklyReportConfigModule.loadWeeklyReportDefinition(
+      path.join(__dirname, 'config', 'weekly-report-definition.v2.json'),
+    );
+    definitionState.config = loaded.config;
+    definitionState.validation = loaded.validation;
+    if (loaded.validation.ok) {
+      console.log('Weekly report placement preview enabled.');
+    } else {
+      console.error(
+        'Weekly report placement preview definition is invalid:',
+        loaded.validation.errors,
+      );
+    }
+  } catch (error) {
+    definitionState.initializationError = error;
+    console.error('Weekly report placement preview initialization failed:', error);
+  }
+
+  const previewHandler = weeklyReportPreviewRouteModule
+    ? weeklyReportPreviewRouteModule.createWeeklyReportPreviewHandler({
+      pool,
+      requireApiKey,
+      definitionState,
+      configModule: weeklyReportConfigModule,
+      placementModule: weeklyReportPlacementModule,
+    })
+    : (req, res) => {
+      if (!requireApiKey(req, res)) return;
+      return res.status(503).json({
+        ok: false,
+        error: 'report_preview_unavailable',
+      });
+    };
+
+  app.get(previewRoute, previewHandler);
 }
 
 // ---------- Static dashboard ----------
