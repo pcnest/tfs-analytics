@@ -14,6 +14,7 @@
 - `SYNC_API_KEY`: shared secret for ingest endpoints (required).
 - `OPENAI_API_KEY`: enables AI endpoints (optional).
 - `TFS_WORKITEM_URL_TEMPLATE`: optional per-environment URL template for linking work items.
+- `ENABLE_XLSX_REPORTS=true`: enables the authenticated Agent7 XLSX pilot endpoint; disabled by default.
 - `PGSSLMODE=disable`: for local Postgres without SSL, if needed.
 
 ## Data ingest notes
@@ -26,4 +27,5 @@
 - Frontend updates belong in `public/app.js` and `public/index.html`.
 
 ## Tests
-- No automated tests are configured. If you add any, keep them lightweight and update this file.
+- `npm test`
+- Tests use Node's built-in test runner and should remain lightweight.

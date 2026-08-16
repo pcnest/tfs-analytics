@@ -21,6 +21,10 @@ const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL;
 const SYNC_API_KEY = process.env.SYNC_API_KEY || ''; // required for POST ingest
 const TFS_WORKITEM_URL_TEMPLATE = process.env.TFS_WORKITEM_URL_TEMPLATE || '';
+const ENABLE_XLSX_REPORTS =
+  String(process.env.ENABLE_XLSX_REPORTS || '')
+    .trim()
+    .toLowerCase() === 'true';
 
 if (!DATABASE_URL) {
   console.error('ERROR: DATABASE_URL env var not set.');
@@ -1866,6 +1870,110 @@ app.get('/api/weekly-throughput', async (req, res) => {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
+
+// ---------- Weekly status report XLSX pilot ----------
+if (ENABLE_XLSX_REPORTS) {
+  const reportRoute = '/api/weekly-status-report/export.xlsx';
+  let weeklyStatusReport = null;
+  let weeklyReportConfig = null;
+  let weeklyReportInitializationError = null;
+
+  try {
+    weeklyStatusReport = require('./lib/weekly-status-report');
+    weeklyReportConfig = weeklyStatusReport.loadReportConfig(
+      path.join(__dirname, 'config', 'weekly-report-layout.json'),
+    );
+    console.log('Agent7 XLSX report pilot enabled.');
+  } catch (error) {
+    weeklyReportInitializationError = error;
+    console.error('Weekly XLSX report initialization failed:', error);
+  }
+
+  app.get(reportRoute, async (req, res) => {
+    if (!requireApiKey(req, res)) return;
+
+    if (
+      weeklyReportInitializationError ||
+      !weeklyStatusReport ||
+      !weeklyReportConfig
+    ) {
+      return res.status(503).json({
+        ok: false,
+        error: 'report_unavailable',
+      });
+    }
+
+    const layoutKey = String(req.query.layout || '').trim();
+    if (!layoutKey) {
+      return res.status(400).json({
+        ok: false,
+        error: 'layout parameter required',
+      });
+    }
+
+    const layout = weeklyStatusReport.getLayout(
+      weeklyReportConfig,
+      layoutKey,
+    );
+    if (!layout) {
+      return res.status(400).json({
+        ok: false,
+        error: 'unknown layout',
+      });
+    }
+
+    try {
+      const rows = await weeklyStatusReport.fetchWeeklyStatusItems(pool, layout);
+      if (rows.length === 0) {
+        return res.status(422).json({
+          ok: false,
+          error: 'no active work items found for layout',
+        });
+      }
+
+      const generatedAt = new Date();
+      const model = weeklyStatusReport.buildReportModel(rows, layout);
+      const workbookBuffer = await weeklyStatusReport.renderWorkbookBuffer(
+        model,
+        {
+          generatedAt,
+          tfsWorkItemUrlTemplate: TFS_WORKITEM_URL_TEMPLATE,
+        },
+      );
+      const filename = weeklyStatusReport.buildReportFilename(
+        layout.tab.name,
+        generatedAt,
+      );
+
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${filename}"`,
+      );
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).send(workbookBuffer);
+    } catch (error) {
+      if (error instanceof weeklyStatusReport.ReportRowLimitError) {
+        return res.status(422).json({
+          ok: false,
+          error: 'report row limit exceeded',
+          limit: error.limit,
+        });
+      }
+      console.error('Weekly XLSX report generation failed:', error);
+      if (!res.headersSent) {
+        return res.status(500).json({
+          ok: false,
+          error: 'internal_error',
+        });
+      }
+      return res.end();
+    }
+  });
+}
 
 // ---------- Static dashboard ----------
 app.use('/', express.static(path.join(__dirname, 'public')));
