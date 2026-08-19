@@ -13,15 +13,12 @@
         "types": [
           "Product Backlog Item",
           "Bug",
-          "Task",
           "Feature"
         ],
         "excludeStates": [
           "Removed"
         ],
-        "requiredTags": [
-          "WeeklyReport"
-        ],
+        "requiredTags": [],
         "requiredTagsMode": "all"
       },
       "limits": {
