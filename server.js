@@ -29,6 +29,10 @@ const ENABLE_WEEKLY_REPORT_PREVIEW =
   String(process.env.ENABLE_WEEKLY_REPORT_PREVIEW || '')
     .trim()
     .toLowerCase() === 'true';
+const ENABLE_WEEKLY_REPORT_V2_XLSX =
+  String(process.env.ENABLE_WEEKLY_REPORT_V2_XLSX || '')
+    .trim()
+    .toLowerCase() === 'true';
 
 if (!DATABASE_URL) {
   console.error('ERROR: DATABASE_URL env var not set.');
@@ -2030,6 +2034,63 @@ if (ENABLE_WEEKLY_REPORT_PREVIEW) {
     };
 
   app.get(previewRoute, previewHandler);
+}
+
+// ---------- Weekly status report XLSX export (v2) ----------
+if (ENABLE_WEEKLY_REPORT_V2_XLSX) {
+  const exportRoute = '/api/weekly-status-report/export-v2.xlsx';
+  let weeklyReportConfigModule = null;
+  let weeklyReportPlacementModule = null;
+  let weeklyReportXlsxModule = null;
+  let weeklyReportExportRouteModule = null;
+  const definitionState = {
+    config: null,
+    validation: null,
+    initializationError: null,
+  };
+
+  try {
+    weeklyReportConfigModule = require('./lib/weekly-report-config');
+    weeklyReportPlacementModule = require('./lib/weekly-report-placement');
+    weeklyReportXlsxModule = require('./lib/weekly-report-xlsx-v2');
+    weeklyReportExportRouteModule = require('./lib/weekly-report-export-route');
+    const loaded = weeklyReportConfigModule.loadWeeklyReportDefinition(
+      path.join(__dirname, 'config', 'weekly-report-definition.v2.json'),
+    );
+    definitionState.config = loaded.config;
+    definitionState.validation = loaded.validation;
+    if (loaded.validation.ok) {
+      console.log('Weekly report v2 XLSX export enabled.');
+    } else {
+      console.error(
+        'Weekly report v2 XLSX definition is invalid:',
+        loaded.validation.errors,
+      );
+    }
+  } catch (error) {
+    definitionState.initializationError = error;
+    console.error('Weekly report v2 XLSX initialization failed:', error);
+  }
+
+  const exportHandler = weeklyReportExportRouteModule
+    ? weeklyReportExportRouteModule.createWeeklyReportExportHandler({
+      pool,
+      requireApiKey,
+      definitionState,
+      configModule: weeklyReportConfigModule,
+      placementModule: weeklyReportPlacementModule,
+      xlsxModule: weeklyReportXlsxModule,
+      tfsWorkItemUrlTemplate: TFS_WORKITEM_URL_TEMPLATE,
+    })
+    : (req, res) => {
+      if (!requireApiKey(req, res)) return;
+      return res.status(503).json({
+        ok: false,
+        error: 'report_export_unavailable',
+      });
+    };
+
+  app.get(exportRoute, exportHandler);
 }
 
 // ---------- Static dashboard ----------

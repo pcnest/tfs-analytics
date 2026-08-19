@@ -15,6 +15,8 @@
 - `OPENAI_API_KEY`: enables AI endpoints (optional).
 - `TFS_WORKITEM_URL_TEMPLATE`: optional per-environment URL template for linking work items.
 - `ENABLE_XLSX_REPORTS=true`: enables the authenticated Agent7 XLSX pilot endpoint; disabled by default.
+- `ENABLE_WEEKLY_REPORT_PREVIEW=true`: enables the authenticated read-only v2 placement-preview endpoint; disabled by default. Apply `migration-add-weekly-report-placement-overrides.sql` before enabling it.
+- `ENABLE_WEEKLY_REPORT_V2_XLSX=true`: enables the authenticated validation-gated v2 XLSX endpoint; disabled by default and uses the same migration and v2 definition as placement preview.
 - `PGSSLMODE=disable`: for local Postgres without SSL, if needed.
 
 ## Data ingest notes
@@ -24,6 +26,7 @@
 ## Conventions and guardrails
 - When adding queries for active items, include `is_deleted = FALSE` to avoid soft-deleted data.
 - Keep SQL parameterized; avoid string interpolation for query values.
+- The v2 weekly-report definition is `config/weekly-report-definition.v2.json`; placement exceptions are stored in `weekly_report_placement_overrides`.
 - Frontend updates belong in `public/app.js` and `public/index.html`.
 
 ## Tests
