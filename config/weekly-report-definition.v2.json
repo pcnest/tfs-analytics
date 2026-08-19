@@ -18,7 +18,8 @@
           "Feature"
         ],
         "excludeStates": [
-          "Removed"
+          "Removed",
+          "Done"
         ],
         "requiredTags": [],
         "requiredTagsMode": "all"
