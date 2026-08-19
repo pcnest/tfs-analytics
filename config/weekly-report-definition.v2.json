@@ -5,7 +5,9 @@
       "description": "Agent7 weekly status-report placement preview",
       "source": {
         "areaPaths": [
-          "SupplyPro.Core\\Enterprise Software Team\\Agent7"
+          "SupplyPro.Core\\Enterprise Software Team\\Agent7",
+          "SupplyPro.Core\\Enterprise Software Team\\Mobile",
+          "SupplyPro.Core\\Enterprise Software Team\\NextGen"
         ],
         "match": "exact"
       },
@@ -44,6 +46,44 @@
               }
             }
           ]
+        },
+        {
+          "key": "mobile",
+          "name": "Mobile",
+          "order": 20,
+          "sections": [
+            {
+              "key": "weekly-items",
+              "name": "Weekly Items",
+              "order": 10,
+              "grouping": {
+                "levels": [
+                  "release",
+                  "feature"
+                ],
+                "includeStandaloneItems": true
+              }
+            }
+          ]
+        },
+        {
+          "key": "nextgen",
+          "name": "NextGen",
+          "order": 30,
+          "sections": [
+            {
+              "key": "weekly-items",
+              "name": "Weekly Items",
+              "order": 10,
+              "grouping": {
+                "levels": [
+                  "release",
+                  "feature"
+                ],
+                "includeStandaloneItems": true
+              }
+            }
+          ]
         }
       ],
       "placementRules": [
@@ -57,6 +97,32 @@
           },
           "target": {
             "tabKey": "agent7",
+            "sectionKey": "weekly-items"
+          }
+        },
+        {
+          "key": "mobile-default",
+          "priority": 200,
+          "match": {
+            "areaPaths": [
+              "SupplyPro.Core\\Enterprise Software Team\\Mobile"
+            ]
+          },
+          "target": {
+            "tabKey": "mobile",
+            "sectionKey": "weekly-items"
+          }
+        },
+        {
+          "key": "nextgen-default",
+          "priority": 300,
+          "match": {
+            "areaPaths": [
+              "SupplyPro.Core\\Enterprise Software Team\\NextGen"
+            ]
+          },
+          "target": {
+            "tabKey": "nextgen",
             "sectionKey": "weekly-items"
           }
         }
