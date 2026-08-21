@@ -40,6 +40,10 @@ const ENABLE_WEEKLY_REPORT_V2_XLSX =
   String(process.env.ENABLE_WEEKLY_REPORT_V2_XLSX || '')
     .trim()
     .toLowerCase() === 'true';
+const ENABLE_WEEKLY_REPORT_SCOPE_REFRESH =
+  String(process.env.ENABLE_WEEKLY_REPORT_SCOPE_REFRESH || '')
+    .trim()
+    .toLowerCase() === 'true';
 
 if (!DATABASE_URL) {
   console.error('ERROR: DATABASE_URL env var not set.');
@@ -62,6 +66,61 @@ const pool = new Pool({
   idleTimeoutMillis: 30000, // release idle connections quickly
   statement_timeout: 25000, // prevent long queries (Render timeout is 30s)
 });
+
+let weeklyReportRefreshConfigModule = null;
+let weeklyReportRefreshPlacementModule = null;
+let weeklyReportRefreshCompletenessModule = null;
+let weeklyReportRefreshModule = null;
+const weeklyReportRefreshDefinitionState = {
+  config: null,
+  validation: null,
+  initializationError: null,
+};
+
+if (ENABLE_WEEKLY_REPORT_SCOPE_REFRESH) {
+  try {
+    weeklyReportRefreshConfigModule = require('./lib/weekly-report-config');
+    weeklyReportRefreshPlacementModule = require('./lib/weekly-report-placement');
+    weeklyReportRefreshCompletenessModule = require('./lib/weekly-report-completeness');
+    weeklyReportRefreshModule = require('./lib/weekly-report-refresh');
+    const loaded = weeklyReportRefreshConfigModule.loadWeeklyReportDefinition(
+      path.join(__dirname, 'config', 'weekly-report-definition.v2.json'),
+    );
+    weeklyReportRefreshDefinitionState.config = loaded.config;
+    weeklyReportRefreshDefinitionState.validation = loaded.validation;
+    if (!loaded.validation.ok) {
+      weeklyReportRefreshDefinitionState.initializationError = new Error(
+        'Weekly report refresh definition is invalid.',
+      );
+      console.error(
+        'Weekly report scope refresh definition is invalid:',
+        loaded.validation.errors,
+      );
+    } else if (!ENABLE_WEEKLY_REPORT_PREVIEW) {
+      weeklyReportRefreshDefinitionState.initializationError = new Error(
+        'Weekly report completeness preview must be enabled.',
+      );
+      console.error(
+        'Weekly report scope refresh requires ENABLE_WEEKLY_REPORT_PREVIEW=true.',
+      );
+    } else {
+      console.log('Weekly report scope refresh enabled.');
+    }
+  } catch (error) {
+    weeklyReportRefreshDefinitionState.initializationError = error;
+    console.error('Weekly report scope refresh initialization failed:', error);
+  }
+}
+
+function isWeeklyReportScopeRefreshAvailable() {
+  return Boolean(
+    ENABLE_WEEKLY_REPORT_SCOPE_REFRESH &&
+    ENABLE_WEEKLY_REPORT_PREVIEW &&
+    weeklyReportRefreshModule &&
+    weeklyReportRefreshDefinitionState.config &&
+    !weeklyReportRefreshDefinitionState.initializationError,
+  );
+}
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
@@ -2453,7 +2512,9 @@ function buildSnapshotInsert(runId, snapshotAt, rows) {
 // ---------- Ingest ----------
 app.get('/api/tfs-weekly-sync/capabilities', (req, res) => {
   if (!requireApiKey(req, res)) return;
-  res.json(getSyncCapabilities());
+  res.json(getSyncCapabilities({
+    reportScopeRefreshEnabled: isWeeklyReportScopeRefreshAvailable(),
+  }));
 });
 
 // FIX P2: Delta sync watermark endpoint
@@ -2540,9 +2601,34 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
     return res.status(400).json({ error: 'rows array required' });
   }
 
-  const syncPolicy = getSyncRequestPolicy(req.body || {});
+  const syncPolicy = getSyncRequestPolicy(req.body || {}, {
+    reportScopeRefreshEnabled: isWeeklyReportScopeRefreshAvailable(),
+  });
   if (!syncPolicy.ok) {
     return res.status(syncPolicy.status).json({ error: syncPolicy.error });
+  }
+
+  if (syncPolicy.syncMode === 'report-scope-refresh') {
+    try {
+      const refreshValidation = await weeklyReportRefreshModule.validateReportScopeRefreshRequest({
+        pool,
+        body: req.body || {},
+        definitionState: weeklyReportRefreshDefinitionState,
+        configModule: weeklyReportRefreshConfigModule,
+        placementModule: weeklyReportRefreshPlacementModule,
+        completenessModule: weeklyReportRefreshCompletenessModule,
+      });
+      if (!refreshValidation.ok) {
+        return res.status(refreshValidation.status).json({
+          error: refreshValidation.error,
+          invalidRows: refreshValidation.invalidRows,
+          validation: refreshValidation.validation,
+        });
+      }
+    } catch (error) {
+      console.error('Report scope refresh validation failed:', error);
+      return res.status(500).json({ error: 'report_scope_refresh_validation_failed' });
+    }
   }
 
   const syncTs = syncedAtUtc ? new Date(syncedAtUtc) : new Date();
@@ -2571,7 +2657,7 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
     );
     if (syncPolicy.rejectInvalidRows) {
       return res.status(400).json({
-        error: 'invalid_report_hierarchy_repair_rows',
+        error: syncPolicy.invalidRowsError || 'invalid_sync_rows',
         invalidRows: invalidRows.map((row) => ({
           index: row.index,
           errors: row.errors,
