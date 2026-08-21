@@ -7,6 +7,9 @@ const {
   getSyncCapabilities,
   getSyncRequestPolicy,
 } = require('./lib/tfs-sync-mode');
+const {
+  getLeanWorkItemsPagination,
+} = require('./lib/lean-workitems-pagination');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -2691,12 +2694,17 @@ app.get('/api/lean-workitems', async (req, res) => {
     feature,
     fromChanged,
     toChanged,
-    limit,
-    offset,
   } = req.query;
 
-  const lim = Math.min(Math.max(Number(limit) || 200, 1), 1000);
-  const off = Math.max(Number(offset) || 0, 0);
+  const pagination = getLeanWorkItemsPagination(req.query);
+  if (!pagination.ok) {
+    return res.status(pagination.status).json({
+      ok: false,
+      error: pagination.error,
+    });
+  }
+  const lim = pagination.limit;
+  const off = pagination.offset;
 
   const where = ['is_deleted = FALSE']; // FIX P0: Filter out soft-deleted items
   const params = [];
@@ -2729,6 +2737,21 @@ app.get('/api/lean-workitems', async (req, res) => {
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const rowWhere = [...where];
+  const rowParams = [...params];
+  if (pagination.mode === 'keyset') {
+    rowParams.push(pagination.afterWorkItemId);
+    rowWhere.push(`work_item_id > $${rowParams.length}`);
+  }
+  const rowWhereSql = rowWhere.length
+    ? `WHERE ${rowWhere.join(' AND ')}`
+    : '';
+  const pagingSql = pagination.mode === 'keyset'
+    ? `LIMIT $${rowParams.length + 1}`
+    : `LIMIT $${rowParams.length + 1} OFFSET $${rowParams.length + 2}`;
+  const pagingParams = pagination.mode === 'keyset'
+    ? [...rowParams, lim]
+    : [...rowParams, lim, off];
 
   const sql = `
     SELECT
@@ -2746,14 +2769,15 @@ app.get('/api/lean-workitems', async (req, res) => {
       related_link_count as "relatedLinkCount", open_related_count as "openRelatedCount",
       source, synced_at as "syncedAt"
     FROM tfs_workitems_analytics
-    ${whereSql}
-    ORDER BY changed_date DESC NULLS LAST
-    LIMIT $${params.length + 1}
-    OFFSET $${params.length + 2}
+    ${rowWhereSql}
+    ORDER BY ${pagination.orderBy}
+    ${pagingSql}
   `;
 
   const sqlCount = `
-    SELECT COUNT(*)::int as count
+    SELECT
+      COUNT(*)::int as count,
+      MAX(synced_at) as "dataVersion"
     FROM tfs_workitems_analytics
     ${whereSql}
   `;
@@ -2761,7 +2785,7 @@ app.get('/api/lean-workitems', async (req, res) => {
   try {
     const [rCount, rRows] = await Promise.all([
       pool.query(sqlCount, params),
-      pool.query(sql, [...params, lim, off]),
+      pool.query(sql, pagingParams),
     ]);
 
     // small rollup for dashboard tiles
@@ -2779,11 +2803,22 @@ app.get('/api/lean-workitems', async (req, res) => {
       params,
     );
 
+    const lastRow = rRows.rows[rRows.rows.length - 1];
+    const nextAfterWorkItemId = pagination.mode === 'keyset'
+      ? (lastRow?.workItemId ?? pagination.afterWorkItemId)
+      : null;
     res.json({
       ok: true,
       count: rCount.rows[0].count,
+      dataVersion: rCount.rows[0].dataVersion,
       limit: lim,
       offset: off,
+      pagination: {
+        mode: pagination.mode,
+        afterWorkItemId: pagination.afterWorkItemId,
+        nextAfterWorkItemId,
+        hasMore: pagination.mode === 'keyset' && rRows.rows.length === lim,
+      },
       rollup: roll.rows[0],
       rows: rRows.rows,
     });
