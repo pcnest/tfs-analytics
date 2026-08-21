@@ -3,6 +3,10 @@ const path = require('path');
 const { Pool } = require('pg');
 const aiService = require('./lib/ai-service');
 const reportBuilder = require('./lib/report-builder');
+const {
+  getSyncCapabilities,
+  getSyncRequestPolicy,
+} = require('./lib/tfs-sync-mode');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -2410,6 +2414,11 @@ function buildSnapshotInsert(runId, snapshotAt, rows) {
 }
 
 // ---------- Ingest ----------
+app.get('/api/tfs-weekly-sync/capabilities', (req, res) => {
+  if (!requireApiKey(req, res)) return;
+  res.json(getSyncCapabilities());
+});
+
 // FIX P2: Delta sync watermark endpoint
 app.get('/api/last-sync-watermark', async (req, res) => {
   if (!requireApiKey(req, res)) return;
@@ -2489,13 +2498,18 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
 
   if (!requireApiKey(req, res)) return;
 
-  const { source, syncedAtUtc, rows } = req.body || {};
+  const { syncedAtUtc, rows } = req.body || {};
   if (!rows || !Array.isArray(rows) || rows.length === 0) {
     return res.status(400).json({ error: 'rows array required' });
   }
 
+  const syncPolicy = getSyncRequestPolicy(req.body || {});
+  if (!syncPolicy.ok) {
+    return res.status(syncPolicy.status).json({ error: syncPolicy.error });
+  }
+
   const syncTs = syncedAtUtc ? new Date(syncedAtUtc) : new Date();
-  const src = source ?? 'tfs-weekly-sync';
+  const src = syncPolicy.source;
 
   // FIX P0: Validate all rows before processing
   const validRows = [];
@@ -2518,6 +2532,15 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
         .slice(0, 5)
         .map((x) => ({ index: x.index, errors: x.errors })),
     );
+    if (syncPolicy.rejectInvalidRows) {
+      return res.status(400).json({
+        error: 'invalid_report_hierarchy_repair_rows',
+        invalidRows: invalidRows.map((row) => ({
+          index: row.index,
+          errors: row.errors,
+        })),
+      });
+    }
   }
 
   const client = await pool.connect();
@@ -2547,6 +2570,13 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       const existingSet = new Set(
         existingIdsResult.rows.map((r) => r.work_item_id),
       );
+
+      if (!syncPolicy.allowInserts && existingSet.size !== validRows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'report_hierarchy_repair_requires_existing_rows',
+        });
+      }
 
       for (const r of validRows) {
         if (existingSet.has(r.workItemId)) {
@@ -2584,14 +2614,17 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       }
     }
 
-    // FIX P0: Mark old items as deleted (soft delete)
-    // Items not synced in last 30 days are considered deleted
-    const deleteThreshold = new Date(Date.now() - 30 * 86400 * 1000);
-    const deleteResult = await client.query(
-      'UPDATE tfs_workitems_analytics SET is_deleted = TRUE WHERE synced_at < $1 AND is_deleted = FALSE',
-      [deleteThreshold],
-    );
-    const deletedCount = deleteResult.rowCount || 0;
+    let deletedCount = 0;
+    if (syncPolicy.runGlobalCleanup) {
+      // FIX P0: Mark old items as deleted (soft delete)
+      // Items not synced in last 30 days are considered deleted.
+      const deleteThreshold = new Date(Date.now() - 30 * 86400 * 1000);
+      const deleteResult = await client.query(
+        'UPDATE tfs_workitems_analytics SET is_deleted = TRUE WHERE synced_at < $1 AND is_deleted = FALSE',
+        [deleteThreshold],
+      );
+      deletedCount = deleteResult.rowCount || 0;
+    }
 
     // FIX P2: Store metrics in sync run
     const metrics = {
@@ -2601,6 +2634,8 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       deleted: deletedCount,
       validRows: validRows.length,
       invalidRows: invalidRows.length,
+      syncMode: syncPolicy.syncMode,
+      globalCleanupSkipped: !syncPolicy.runGlobalCleanup,
     };
 
     await client.query(
@@ -2608,19 +2643,21 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       [JSON.stringify(metrics), runId],
     );
 
-    // NEW: Capture release health snapshot for confidence trending
-    try {
-      const snapshotResult = await client.query(
-        'SELECT capture_release_health_snapshot($1) as captured_count',
-        [runId],
-      );
-      const capturedCount = snapshotResult.rows[0]?.captured_count || 0;
-      console.log(
-        `Captured health snapshot: ${capturedCount} releases for run ${runId}`,
-      );
-    } catch (snapErr) {
-      // Don't fail the sync if snapshot capture fails
-      console.warn('Failed to capture health snapshot:', snapErr.message);
+    if (syncPolicy.captureReleaseHealth) {
+      // NEW: Capture release health snapshot for confidence trending
+      try {
+        const snapshotResult = await client.query(
+          'SELECT capture_release_health_snapshot($1) as captured_count',
+          [runId],
+        );
+        const capturedCount = snapshotResult.rows[0]?.captured_count || 0;
+        console.log(
+          `Captured health snapshot: ${capturedCount} releases for run ${runId}`,
+        );
+      } catch (snapErr) {
+        // Don't fail the sync if snapshot capture fails
+        console.warn('Failed to capture health snapshot:', snapErr.message);
+      }
     }
 
     await client.query('COMMIT');
