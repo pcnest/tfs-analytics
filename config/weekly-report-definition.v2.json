@@ -44,7 +44,6 @@
               "order": 10,
               "grouping": {
                 "levels": [
-                  "release",
                   "feature"
                 ],
                 "includeStandaloneItems": true
@@ -63,7 +62,6 @@
               "order": 10,
               "grouping": {
                 "levels": [
-                  "release",
                   "feature"
                 ],
                 "includeStandaloneItems": true
@@ -82,7 +80,6 @@
               "order": 10,
               "grouping": {
                 "levels": [
-                  "release",
                   "feature"
                 ],
                 "includeStandaloneItems": true
