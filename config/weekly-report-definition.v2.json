@@ -3,6 +3,10 @@
   "layouts": {
     "agent7-weekly": {
       "description": "Weekly status-report placement preview",
+      "presentation": {
+        "showWorksheetSummaryBand": false,
+        "showFeatureSummary": false
+      },
       "source": {
         "areaPaths": [
           "SupplyPro.Core\\Enterprise Software Team\\Agent7",
