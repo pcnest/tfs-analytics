@@ -1993,9 +1993,13 @@ if (ENABLE_XLSX_REPORTS) {
 // ---------- Weekly status report placement preview (v2) ----------
 if (ENABLE_WEEKLY_REPORT_PREVIEW) {
   const previewRoute = '/api/weekly-status-report/placement-preview';
+  const completenessRoute = '/api/weekly-status-report/completeness-preview';
   let weeklyReportConfigModule = null;
   let weeklyReportPlacementModule = null;
   let weeklyReportPreviewRouteModule = null;
+  let weeklyReportCompletenessModule = null;
+  let weeklyReportCompletenessRouteModule = null;
+  let completenessInitializationError = null;
   const definitionState = {
     config: null,
     validation: null,
@@ -2024,6 +2028,14 @@ if (ENABLE_WEEKLY_REPORT_PREVIEW) {
     console.error('Weekly report placement preview initialization failed:', error);
   }
 
+  try {
+    weeklyReportCompletenessModule = require('./lib/weekly-report-completeness');
+    weeklyReportCompletenessRouteModule = require('./lib/weekly-report-completeness-route');
+  } catch (error) {
+    completenessInitializationError = error;
+    console.error('Weekly report completeness preview initialization failed:', error);
+  }
+
   const previewHandler = weeklyReportPreviewRouteModule
     ? weeklyReportPreviewRouteModule.createWeeklyReportPreviewHandler({
       pool,
@@ -2041,6 +2053,28 @@ if (ENABLE_WEEKLY_REPORT_PREVIEW) {
     };
 
   app.get(previewRoute, previewHandler);
+
+  const completenessHandler = weeklyReportCompletenessRouteModule
+    ? weeklyReportCompletenessRouteModule.createWeeklyReportCompletenessHandler({
+      pool,
+      requireApiKey,
+      definitionState: {
+        ...definitionState,
+        initializationError: definitionState.initializationError || completenessInitializationError,
+      },
+      configModule: weeklyReportConfigModule,
+      placementModule: weeklyReportPlacementModule,
+      completenessModule: weeklyReportCompletenessModule,
+    })
+    : (req, res) => {
+      if (!requireApiKey(req, res)) return;
+      return res.status(503).json({
+        ok: false,
+        error: 'report_completeness_unavailable',
+      });
+    };
+
+  app.post(completenessRoute, completenessHandler);
 }
 
 // ---------- Weekly status report XLSX export (v2) ----------
