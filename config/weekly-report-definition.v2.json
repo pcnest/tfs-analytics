@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "layouts": {
     "agent7-weekly": {
-      "description": "Agent7 weekly status-report placement preview",
+      "description": "Weekly status-report placement preview",
       "source": {
         "areaPaths": [
           "SupplyPro.Core\\Enterprise Software Team\\Agent7",
@@ -23,6 +23,10 @@
         ],
         "requiredTags": [],
         "requiredTagsMode": "all"
+      },
+      "releaseSelection": {
+        "strategy": "highestNumericTag",
+        "fallback": "storedRelease"
       },
       "limits": {
         "candidateRows": 5000,
