@@ -22,7 +22,7 @@ It produces four worksheets named `Agent7`, `CDR`, `Mobile`, and `NextGen` with 
 | Type    | `Product Backlog Item` is displayed as `PBI`; Bugs retain `Bug`              |
 | Title   | Current analytics title                                                      |
 | Status  | Current analytics state, including `Shelved`                                 |
-| Remarks | Reserved for future report remarks; currently blank                          |
+| Remarks | Latest marked TFS Discussion body; blank when absent or explicitly cleared   |
 
 The checked-in filters currently:
 
@@ -52,13 +52,17 @@ Workbook presentation behavior:
 - Feature child rows are Excel outline level 1. They are expanded when the workbook opens and can be collapsed or expanded with Excel's outline controls. Standalone items are not included in a Feature outline.
 - With the current summary band disabled, rows 1-2 are frozen. When the band is enabled, rows 1-3 are frozen. Printed pages repeat the row-2 column headings and include the generated report date plus `Page X of Y` in the footer.
 - Status highlighting applies only to the Status cell: `On-Hold` is pale red, `Shelved` is light gray, `Ready for QA` and `Resolved` are pale green, and `Re-opened` is pale yellow. Other statuses are not colored.
-- Remarks remains present and blank until a durable, stakeholder-relevant TFS source field is selected.
+- Remarks comes from the newest TFS Discussion entry that begins with `[WeeklyReport]`, case-insensitively. The marker itself is not displayed.
+- A newer `[WeeklyReport] ...` entry replaces the previous report remark. Unmarked Discussion entries and associated changesets do not replace it.
+- `[WeeklyReport][Clear]` explicitly blanks Remarks while retaining the immutable TFS Discussion audit trail. Remarks otherwise persist until replaced or cleared.
+- Real Feature work items can populate the Feature header Remarks cell. A synthesized Feature header has no source Discussion record and remains blank.
 
 ## How report generation works
 
 ```text
 TFS 2017
   -> sync-tfs-lean.ps1
+  -> paged work-item updates lookup for eligible report rows
   -> authenticated Render ingest API
   -> Neon PostgreSQL analytics tables
   -> v2 filters + overrides + placement rules
@@ -78,6 +82,7 @@ Important files:
 | `lib/weekly-report-xlsx-v2.js`            | Workbook modeling, sorting, styling, and rendering                                             |
 | `lib/weekly-report-export-route.js`       | Authenticated v2 XLSX endpoint                                                                 |
 | `lib/tfs-report-scope-refresh.ps1`        | Full TFS report-scope discovery and release selection                                          |
+| `lib/tfs-weekly-report-remarks.ps1`       | Paged Discussion retrieval, HTML normalization, marker selection, and clear handling           |
 | `sync-tfs-lean.ps1`                       | Standard sync, report-scope refresh, and hierarchy repair orchestration                        |
 | `reconcile-tfs.ps1`                       | Read-only TFS-versus-analytics audit and completeness analysis                                 |
 | `weekly_report_placement_overrides`       | Database placement/exclusion exceptions                                                        |
@@ -109,7 +114,10 @@ Example URL template:
 https://remote.spdev.us/tfs/SupplyPro.Applications/SupplyPro.Core/_workitems?id={id}&_a=edit
 ```
 
-Apply `migration-add-weekly-report-placement-overrides.sql` once before enabling v2 preview/export. The migration is idempotent and creates the placement override table, indexes, and updated-at trigger.
+Apply these idempotent migrations before deploying the matching server code:
+
+- `migration-add-weekly-report-placement-overrides.sql` creates the placement override table, indexes, and updated-at trigger.
+- `migration-add-weekly-report-remarks.sql` adds the derived remark text and TFS revision/date/author provenance columns.
 
 ## Recommended weekly workflow
 
@@ -126,6 +134,26 @@ Expected successful ending:
 ```text
 Report-scope refresh complete and verified: <count> eligible items; missing=0.
 ```
+
+When the layout enables Discussion remarks, report-scope refresh retrieves and validates the complete update history for every eligible item before posting its first ingest batch. Any unavailable, malformed, incomplete, empty, or oversized latest marked entry aborts before report-scope writes. The timestamped refresh summary includes remark, clear, no-marker, page, update, and elapsed-time counts.
+
+### Authoring and clearing Remarks
+
+Post a normal TFS Discussion entry such as:
+
+```text
+[WeeklyReport] Customer validation is scheduled for Friday. The owner will report results afterward.
+```
+
+Only the trimmed text after `[WeeklyReport]` appears in the spreadsheet. The newest marked revision wins even when later unmarked Discussion entries or changesets exist.
+
+To intentionally remove the current remark, post exactly:
+
+```text
+[WeeklyReport][Clear]
+```
+
+Do not post an empty `[WeeklyReport]` entry or add text after `[Clear]`; both are treated as malformed so an accidental partial entry cannot silently clear or replace a valid remark.
 
 The refresh writes a timestamped summary under `reports/`. It is safe to rerun. It does not run release cleanup, global 30-day cleanup, or release-health capture inside report-scope refresh batches.
 
@@ -259,6 +287,24 @@ The current layout uses:
 - Both properties are optional and default to `true`, preserving layouts created before presentation settings were introduced.
 - Presentation settings must be Boolean values. Unknown presentation properties or non-Boolean values fail configuration validation.
 
+### Remarks
+
+The current layout uses:
+
+```json
+"remarks": {
+  "source": "tfsDiscussionMarker",
+  "marker": "[WeeklyReport]",
+  "clearMarker": "[WeeklyReport][Clear]",
+  "maxLength": 32767
+}
+```
+
+- Omitting `remarks` disables marked-Discussion extraction and display without deleting already stored values.
+- Marker matching is case-insensitive after leading whitespace and is anchored to the beginning of the plain-text Discussion body.
+- TFS rich text is converted to wrapped plain text while preserving meaningful line breaks.
+- The maximum cannot exceed Excel's 32,767-character cell limit.
+
 ### Release selection
 
 `agent7-weekly` uses:
@@ -318,6 +364,8 @@ When changing grouping, presentation, or other configuration semantics, deploy t
 - `lib/weekly-report-config.js`
 - `lib/weekly-report-xlsx-v2.js`
 - related tests and this runbook in source control
+
+For marked Discussion remarks, apply `migration-add-weekly-report-remarks.sql` first and deploy the updated server, sync script, remark helper, configuration, tests, and runbook together. Confirm `/api/tfs-weekly-sync/capabilities` advertises enabled `tfsDiscussionMarker` support before running refresh.
 
 No database migration is required for grouping or workbook-presentation changes. Roll back the current summary suppression by setting both presentation properties to `true` or by omitting the optional `presentation` object.
 
@@ -379,6 +427,19 @@ All endpoints above use the existing `x-api-key: <SYNC_API_KEY>` contract. The l
 - Deploy the current server sync-mode and completeness modules.
 - Set both `ENABLE_WEEKLY_REPORT_PREVIEW=true` and `ENABLE_WEEKLY_REPORT_SCOPE_REFRESH=true`.
 - Restart or redeploy Render, then rerun the refresh-only command.
+
+### Server does not advertise weekly-report remarks
+
+- Apply `migration-add-weekly-report-remarks.sql` before deploying the remark-aware server.
+- Deploy the server, v2 definition, `sync-tfs-lean.ps1`, and `lib/tfs-weekly-report-remarks.ps1` together.
+- Confirm the deployed layout contains the same `remarks` policy as the local layout, then rerun refresh.
+
+### Remark extraction fails before writes
+
+- Open the timestamped failed refresh summary and inspect `remarkExtraction.error`.
+- Correct the identified TFS Discussion by posting a newer valid `[WeeklyReport] ...` entry or the exact `[WeeklyReport][Clear]` directive.
+- Confirm TFS update history is reachable with the configured PAT and VPN connection.
+- Rerun refresh; the failed attempt did not post report-scope batches or alter stored remarks.
 
 ### Deployed completeness layout area paths do not match
 

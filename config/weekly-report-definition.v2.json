@@ -7,6 +7,12 @@
         "showWorksheetSummaryBand": false,
         "showFeatureSummary": false
       },
+      "remarks": {
+        "source": "tfsDiscussionMarker",
+        "marker": "[WeeklyReport]",
+        "clearMarker": "[WeeklyReport][Clear]",
+        "maxLength": 32767
+      },
       "source": {
         "areaPaths": [
           "SupplyPro.Core\\Enterprise Software Team\\Agent7",

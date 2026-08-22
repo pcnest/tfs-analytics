@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS tfs_workitems_analytics (
   feature_id          INTEGER,
   feature             TEXT,
 
+  weekly_report_remark             TEXT,
+  weekly_report_remark_revision    INTEGER,
+  weekly_report_remark_changed_at  TIMESTAMPTZ,
+  weekly_report_remark_changed_by  TEXT,
+
   dep_count           INTEGER NOT NULL DEFAULT 0,
   open_dep_count      INTEGER,  -- nullable: open counts computed only for active items
   related_link_count  INTEGER NOT NULL DEFAULT 0,
@@ -55,6 +60,60 @@ CREATE INDEX IF NOT EXISTS idx_tfs_analytics_feature_id   ON tfs_workitems_analy
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_changed_date ON tfs_workitems_analytics (changed_date);
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_synced_at    ON tfs_workitems_analytics (synced_at);
 CREATE INDEX IF NOT EXISTS idx_tfs_analytics_is_deleted   ON tfs_workitems_analytics (is_deleted) WHERE is_deleted = FALSE;  -- FIX: Soft delete index
+CREATE INDEX IF NOT EXISTS idx_tfs_analytics_active_area_work_item
+  ON tfs_workitems_analytics (area_path, work_item_id)
+  WHERE is_deleted = FALSE;
+
+-- ============================================
+-- Weekly Report Placement Exceptions
+-- ============================================
+CREATE TABLE IF NOT EXISTS weekly_report_placement_overrides (
+  layout_key    TEXT NOT NULL,
+  work_item_id  INTEGER NOT NULL,
+  action        TEXT NOT NULL,
+  tab_key       TEXT,
+  section_key   TEXT,
+  reason        TEXT NOT NULL,
+  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by    TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT pk_weekly_report_placement_overrides
+    PRIMARY KEY (layout_key, work_item_id),
+  CONSTRAINT ck_weekly_report_placement_action
+    CHECK (action IN ('place', 'exclude')),
+  CONSTRAINT ck_weekly_report_placement_target
+    CHECK (
+      (action = 'place' AND NULLIF(BTRIM(tab_key), '') IS NOT NULL AND NULLIF(BTRIM(section_key), '') IS NOT NULL)
+      OR
+      (action = 'exclude' AND tab_key IS NULL AND section_key IS NULL)
+    ),
+  CONSTRAINT ck_weekly_report_placement_reason
+    CHECK (NULLIF(BTRIM(reason), '') IS NOT NULL),
+  CONSTRAINT ck_weekly_report_placement_created_by
+    CHECK (NULLIF(BTRIM(created_by), '') IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_weekly_report_placement_active_layout
+  ON weekly_report_placement_overrides (layout_key, work_item_id)
+  WHERE is_active = TRUE;
+
+CREATE OR REPLACE FUNCTION set_weekly_report_placement_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_weekly_report_placement_updated_at
+  ON weekly_report_placement_overrides;
+
+CREATE TRIGGER trg_weekly_report_placement_updated_at
+BEFORE UPDATE ON weekly_report_placement_overrides
+FOR EACH ROW
+EXECUTE FUNCTION set_weekly_report_placement_updated_at();
 
 -- ============================================
 -- Sync Runs Tracking

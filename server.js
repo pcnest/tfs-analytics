@@ -2264,6 +2264,35 @@ function validateRow(r, idx) {
     }
   }
 
+  if (
+    r.weeklyReportRemark !== null &&
+    r.weeklyReportRemark !== undefined &&
+    (typeof r.weeklyReportRemark !== 'string' || r.weeklyReportRemark.length > 32767)
+  ) {
+    errors.push(`Row ${idx}: weeklyReportRemark must be a string no longer than 32767 characters`);
+  }
+  if (
+    r.weeklyReportRemarkRevision !== null &&
+    r.weeklyReportRemarkRevision !== undefined &&
+    (!Number.isInteger(r.weeklyReportRemarkRevision) || r.weeklyReportRemarkRevision <= 0)
+  ) {
+    errors.push(`Row ${idx}: weeklyReportRemarkRevision must be a positive integer`);
+  }
+  if (
+    r.weeklyReportRemarkChangedAt !== null &&
+    r.weeklyReportRemarkChangedAt !== undefined &&
+    !toDateOrNull(r.weeklyReportRemarkChangedAt)
+  ) {
+    errors.push(`Row ${idx}: weeklyReportRemarkChangedAt must be a valid date`);
+  }
+  if (
+    r.weeklyReportRemarkChangedBy !== null &&
+    r.weeklyReportRemarkChangedBy !== undefined &&
+    (typeof r.weeklyReportRemarkChangedBy !== 'string' || r.weeklyReportRemarkChangedBy.trim() === '')
+  ) {
+    errors.push(`Row ${idx}: weeklyReportRemarkChangedBy must be a non-empty string`);
+  }
+
   return errors;
 }
 
@@ -2321,7 +2350,7 @@ function mapProjectForRelease(release, currentProject) {
 }
 
 // Build a single multi-row upsert statement (chunked) for good performance.
-function buildUpsert(rows) {
+function buildUpsert(rows, options = {}) {
   // Columns match schema.sql (including is_deleted for soft delete support)
   const cols = [
     'work_item_id',
@@ -2346,6 +2375,10 @@ function buildUpsert(rows) {
     'parent_id',
     'feature_id',
     'feature',
+    'weekly_report_remark',
+    'weekly_report_remark_revision',
+    'weekly_report_remark_changed_at',
+    'weekly_report_remark_changed_by',
     'dep_count',
     'open_dep_count',
     'related_link_count',
@@ -2393,6 +2426,11 @@ function buildUpsert(rows) {
         normInt(r.featureId),
         r.feature ?? null,
 
+        r.weeklyReportRemark ?? null,
+        normInt(r.weeklyReportRemarkRevision),
+        toDateOrNull(r.weeklyReportRemarkChangedAt),
+        r.weeklyReportRemarkChangedBy ?? null,
+
         normInt(r.depCount) ?? 0,
         r.openDepCount === null || r.openDepCount === undefined
           ? null
@@ -2412,6 +2450,13 @@ function buildUpsert(rows) {
     })
     .join(',');
 
+  const remarkUpdateSql = options.replaceWeeklyReportRemarks === true
+    ? `
+      weekly_report_remark            = EXCLUDED.weekly_report_remark,
+      weekly_report_remark_revision   = EXCLUDED.weekly_report_remark_revision,
+      weekly_report_remark_changed_at = EXCLUDED.weekly_report_remark_changed_at,
+      weekly_report_remark_changed_by = EXCLUDED.weekly_report_remark_changed_by,`
+    : '';
   const insertSql = `
     INSERT INTO tfs_workitems_analytics (${cols.join(',')})
     VALUES ${valuesSql}
@@ -2437,6 +2482,7 @@ function buildUpsert(rows) {
       parent_id          = EXCLUDED.parent_id,
       feature_id         = EXCLUDED.feature_id,
       feature            = EXCLUDED.feature,
+      ${remarkUpdateSql}
       dep_count          = EXCLUDED.dep_count,
       open_dep_count     = EXCLUDED.open_dep_count,
       related_link_count = EXCLUDED.related_link_count,
@@ -2514,6 +2560,11 @@ app.get('/api/tfs-weekly-sync/capabilities', (req, res) => {
   if (!requireApiKey(req, res)) return;
   res.json(getSyncCapabilities({
     reportScopeRefreshEnabled: isWeeklyReportScopeRefreshAvailable(),
+    weeklyReportRemarksEnabled: Boolean(
+      weeklyReportRefreshDefinitionState.config &&
+      Object.values(weeklyReportRefreshDefinitionState.config.layouts || {})
+        .some((layout) => layout?.remarks?.source === 'tfsDiscussionMarker'),
+    ),
   }));
 });
 
@@ -2719,7 +2770,9 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       }));
 
       // 2) upsert latest
-      const q = buildUpsert(enriched);
+      const q = buildUpsert(enriched, {
+        replaceWeeklyReportRemarks: syncPolicy.syncMode === 'report-scope-refresh',
+      });
       await client.query(q.text, q.values);
 
       // 3) insert snapshots
