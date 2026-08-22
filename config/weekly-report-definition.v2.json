@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "layouts": {
-    "agent7-weekly": {
+    "weekly-report": {
       "description": "Weekly status-report placement preview",
       "presentation": {
         "showWorksheetSummaryBand": false,
@@ -17,6 +17,7 @@
         "areaPaths": [
           "SupplyPro.Core\\Enterprise Software Team\\Agent7",
           "SupplyPro.Core\\Enterprise Software Team\\CDR",
+          "SupplyPro.Core\\Enterprise Software Team\\SSIS",
           "SupplyPro.Core\\Enterprise Software Team\\Mobile",
           "SupplyPro.Core\\Enterprise Software Team\\NextGen"
         ],
@@ -81,9 +82,28 @@
           ]
         },
         {
+          "key": "ssis",
+          "name": "SSIS",
+          "order": 30,
+          "sections": [
+            {
+              "key": "weekly-items",
+              "name": "Weekly Items",
+              "order": 10,
+              "grouping": {
+                "levels": [
+                  "release",
+                  "feature"
+                ],
+                "includeStandaloneItems": true
+              }
+            }
+          ]
+        },
+        {
           "key": "mobile",
           "name": "Mobile",
-          "order": 30,
+          "order": 40,
           "sections": [
             {
               "key": "weekly-items",
@@ -101,7 +121,7 @@
         {
           "key": "nextgen",
           "name": "NextGen",
-          "order": 40,
+          "order": 50,
           "sections": [
             {
               "key": "weekly-items",
@@ -145,8 +165,21 @@
           }
         },
         {
-          "key": "mobile-default",
+          "key": "ssis-default",
           "priority": 300,
+          "match": {
+            "areaPaths": [
+              "SupplyPro.Core\\Enterprise Software Team\\SSIS"
+            ]
+          },
+          "target": {
+            "tabKey": "ssis",
+            "sectionKey": "weekly-items"
+          }
+        },
+        {
+          "key": "mobile-default",
+          "priority": 400,
           "match": {
             "areaPaths": [
               "SupplyPro.Core\\Enterprise Software Team\\Mobile"
@@ -159,7 +192,7 @@
         },
         {
           "key": "nextgen-default",
-          "priority": 400,
+          "priority": 500,
           "match": {
             "areaPaths": [
               "SupplyPro.Core\\Enterprise Software Team\\NextGen"
