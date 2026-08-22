@@ -10,6 +10,7 @@
       "source": {
         "areaPaths": [
           "SupplyPro.Core\\Enterprise Software Team\\Agent7",
+          "SupplyPro.Core\\Enterprise Software Team\\CDR",
           "SupplyPro.Core\\Enterprise Software Team\\Mobile",
           "SupplyPro.Core\\Enterprise Software Team\\NextGen"
         ],
@@ -56,9 +57,27 @@
           ]
         },
         {
+          "key": "cdr",
+          "name": "CDR",
+          "order": 20,
+          "sections": [
+            {
+              "key": "weekly-items",
+              "name": "Weekly Items",
+              "order": 10,
+              "grouping": {
+                "levels": [
+                  "feature"
+                ],
+                "includeStandaloneItems": true
+              }
+            }
+          ]
+        },
+        {
           "key": "mobile",
           "name": "Mobile",
-          "order": 20,
+          "order": 30,
           "sections": [
             {
               "key": "weekly-items",
@@ -76,7 +95,7 @@
         {
           "key": "nextgen",
           "name": "NextGen",
-          "order": 30,
+          "order": 40,
           "sections": [
             {
               "key": "weekly-items",
@@ -107,8 +126,21 @@
           }
         },
         {
-          "key": "mobile-default",
+          "key": "cdr-default",
           "priority": 200,
+          "match": {
+            "areaPaths": [
+              "SupplyPro.Core\\Enterprise Software Team\\CDR"
+            ]
+          },
+          "target": {
+            "tabKey": "cdr",
+            "sectionKey": "weekly-items"
+          }
+        },
+        {
+          "key": "mobile-default",
+          "priority": 300,
           "match": {
             "areaPaths": [
               "SupplyPro.Core\\Enterprise Software Team\\Mobile"
@@ -121,7 +153,7 @@
         },
         {
           "key": "nextgen-default",
-          "priority": 300,
+          "priority": 400,
           "match": {
             "areaPaths": [
               "SupplyPro.Core\\Enterprise Software Team\\NextGen"
