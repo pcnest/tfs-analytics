@@ -2659,9 +2659,10 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
     return res.status(syncPolicy.status).json({ error: syncPolicy.error });
   }
 
+  let refreshValidation = null;
   if (syncPolicy.syncMode === 'report-scope-refresh') {
     try {
-      const refreshValidation = await weeklyReportRefreshModule.validateReportScopeRefreshRequest({
+      refreshValidation = await weeklyReportRefreshModule.validateReportScopeRefreshRequest({
         pool,
         body: req.body || {},
         definitionState: weeklyReportRefreshDefinitionState,
@@ -2673,6 +2674,7 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
         return res.status(refreshValidation.status).json({
           error: refreshValidation.error,
           invalidRows: refreshValidation.invalidRows,
+          invalidFeatureRemarks: refreshValidation.invalidFeatureRemarks,
           validation: refreshValidation.validation,
         });
       }
@@ -2734,6 +2736,7 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
     // FIX P2: Track metrics (inserted vs updated)
     let insertedCount = 0;
     let updatedCount = 0;
+    let featureRemarksUpserted = 0;
 
     if (validRows.length > 0) {
       // Check which work items already exist
@@ -2780,6 +2783,18 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       await client.query(s.text, s.values);
     }
 
+    if (refreshValidation?.featureRemarksProvided) {
+      const featureRemarkUpsert = weeklyReportRefreshModule.buildReferencedFeatureRemarkUpsert(
+        refreshValidation.layoutKey,
+        refreshValidation.featureRemarks,
+        runAt,
+      );
+      if (featureRemarkUpsert) {
+        await client.query(featureRemarkUpsert.text, featureRemarkUpsert.values);
+        featureRemarksUpserted = refreshValidation.featureRemarks.length;
+      }
+    }
+
     // FIX P2: Store invalid rows in quarantine table
     if (invalidRows.length > 0) {
       for (const bad of invalidRows) {
@@ -2810,6 +2825,7 @@ app.post('/api/tfs-weekly-sync', async (req, res) => {
       deleted: deletedCount,
       validRows: validRows.length,
       invalidRows: invalidRows.length,
+      featureRemarksUpserted,
       syncMode: syncPolicy.syncMode,
       globalCleanupSkipped: !syncPolicy.runGlobalCleanup,
     };
